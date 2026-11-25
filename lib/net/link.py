@@ -20,19 +20,62 @@ class Net:
         self.sock = None
         self._last_try = 0
 
+    def _up(self, network, iface):
+        """Bring an interface up from a clean state. After a soft reboot (Thonny's Run / Ctrl+D) the previous
+        run may have left the WiFi driver connecting; starting on top of that gives 'Wifi Internal State Error'."""
+        w = network.WLAN(iface)
+        try:
+            w.active(False)
+        except OSError:
+            pass
+        time.sleep_ms(300)
+        for attempt in range(3):
+            try:
+                w.active(True)
+                return w
+            except OSError as e:
+                print("[net] wifi did not start (%s), retrying" % e)
+                try:
+                    w.active(False)
+                except OSError:
+                    pass
+                time.sleep_ms(500)
+        raise OSError("WiFi would not start")
+
+    def _connect(self):
+        """Start connecting (station). Returns False if the driver refused three times; ensure() keeps trying."""
+        for attempt in range(3):
+            try:
+                self.wlan.connect(self.ssid, self.password)
+                return True
+            except OSError as e:
+                print("[net] connect refused (%s), retrying" % e)
+                try:
+                    self.wlan.disconnect()
+                except OSError:
+                    pass
+                time.sleep_ms(500)
+        return False
+
     def start(self, wifi=True):
         if wifi:
             import network
             if self.mode == "ap":
-                self.wlan = network.WLAN(network.AP_IF)
-                self.wlan.active(True)
-                self.wlan.config(essid=self.ssid, password=self.password,
-                                 authmode=network.AUTH_WPA2_PSK, channel=self.channel)
+                self.wlan = self._up(network, network.AP_IF)
+                for attempt in range(3):
+                    try:
+                        self.wlan.config(essid=self.ssid, password=self.password,
+                                         authmode=network.AUTH_WPA2_PSK, channel=self.channel)
+                        break
+                    except OSError as e:
+                        print("[net] access point setup failed (%s), retrying" % e)
+                        time.sleep_ms(500)
+                else:
+                    raise OSError("access point would not start")
                 print("[net] access point '%s' up, ip %s" % (self.ssid, self.wlan.ifconfig()[0]))
             else:
-                self.wlan = network.WLAN(network.STA_IF)
-                self.wlan.active(True)
-                self.wlan.connect(self.ssid, self.password)
+                self.wlan = self._up(network, network.STA_IF)
+                self._connect()
                 t0 = time.ticks_ms()
                 while not self.wlan.isconnected() and time.ticks_diff(time.ticks_ms(), t0) < 15000:
                     time.sleep_ms(250)
