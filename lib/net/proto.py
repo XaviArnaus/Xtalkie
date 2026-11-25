@@ -1,0 +1,86 @@
+# net/proto.py -- the tiny UDP protocol between master and slave.
+# Every datagram: 2-byte magic, type, flags, 4-byte sequence number, then the payload.
+import struct
+
+MAGIC = b"BM"
+T_AUDIO = 1      # payload: 320 samples, 16-bit little endian, mono, 16 kHz (640 bytes)
+T_END = 2        # the audio stream of this event is over
+T_HB = 3         # master -> slave, once a second: payload = gate_open (1 byte), floor_db*10 (int16)
+T_HELLO = 4      # slave -> master, once a second: lets the master learn the slave's address + battery
+T_CMD = 5        # slave -> master: a command (CMD_LIVE = stream the live microphone for N seconds)
+CMD_LIVE = 1
+CMD_SENS = 2     # set the child unit's sensitivity level 1..5 (arg)
+F_PREROLL = 1    # audio from before the alert (sent so the start of a word is not lost)
+F_TEST = 2       # audio of a live test (the slave shows the test screen, not the alert)
+
+_HDR = "<2sBBI"
+HDR_LEN = 8
+
+
+def pack(ptype, seq, payload=b"", flags=0):
+    return struct.pack(_HDR, MAGIC, ptype, flags, seq & 0xFFFFFFFF) + payload
+
+
+def parse(data):
+    """Return (type, flags, seq, payload) or None if this is not one of our datagrams."""
+    if len(data) < HDR_LEN or data[:2] != MAGIC:
+        return None
+    ptype, flags, seq = struct.unpack_from("<BBI", data, 2)
+    return ptype, flags, seq, data[HDR_LEN:]
+
+
+def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0):
+    f = 0 if floor_db is None else int(floor_db * 10)
+    b = 255 if batt is None else int(batt)
+    return pack(T_HB, seq, struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens))
+
+
+def parse_hb(payload):
+    """(gate_open, floor_db, battery_percent or None, charging, sensitivity level or 0) or None."""
+    if len(payload) < 3:
+        return None
+    g, f = struct.unpack("<Bh", payload[:3])
+    batt = None
+    charging = False
+    sens = 0
+    if len(payload) >= 5:
+        b, fl = struct.unpack("<BB", payload[3:5])
+        batt = None if b == 255 else b
+        charging = bool(fl & 1)
+    if len(payload) >= 6:
+        sens = payload[5]
+    return bool(g), f / 10, batt, charging, sens
+
+
+def pack_hello(seq, batt=None, charging=False):
+    b = 255 if batt is None else int(batt)
+    return pack(T_HELLO, seq, struct.pack("<BB", b, 1 if charging else 0))
+
+
+def parse_hello(payload):
+    """(battery_percent or None, charging)."""
+    if len(payload) < 2:
+        return None, False
+    b, fl = struct.unpack("<BB", payload[:2])
+    return (None if b == 255 else b), bool(fl & 1)
+
+
+def pack_cmd(seq, cmd, arg=0):
+    return pack(T_CMD, seq, struct.pack("<BB", cmd, arg))
+
+
+def parse_cmd(payload):
+    if len(payload) < 2:
+        return None, 0
+    return struct.unpack("<BB", payload[:2])
+
+
+def level_db(payload):
+    """Level (dBFS) of one audio payload; used by the live test screen."""
+    import math
+    vals = struct.unpack("<%dh" % (len(payload) // 2), payload)
+    acc = 0
+    for v in vals:
+        acc += v * v
+    r = math.sqrt(acc / len(vals))
+    return 20 * math.log10(r / 32768) if r > 0 else -99.0

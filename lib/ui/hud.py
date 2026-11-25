@@ -1,0 +1,361 @@
+# ui/hud.py -- the "HUD": battery, one button (BOOT), and what the screen shows. Never lets the screen
+# break the monitor: any display error switches the screen off for good, the audio keeps running.
+#
+# Screen policy (the panel is dark unless one of these is active):
+#   STATUS    BOOT tap: link icon + battery of this unit and of the other one, for status_s seconds
+#   ALARM     (parent unit) voice / alert audio is playing: full-screen flashing bell, until dismissed
+#   LINKLOST  (parent unit) no signal from the child unit: flashing cross; BOOT mutes the beeps
+#   MENU      BOOT long press (parent unit): TEST LIVE / TEST ALARM / EXIT; tap = next, hold = select
+#   TEST      live test: the child unit streams its microphone for test_s seconds, level bar + packet count
+import time
+
+import board
+from drivers.axp2101 import AXP2101
+
+OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW = 0, 1, 2, 3, 4, 5, 6
+MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "EXIT")
+LONG_MS = 1200
+BATT_REFRESH_MS = 30000
+
+
+def volume_actions(audio):
+    """Menu actions that read and step the volume level (1..5) and remember it across reboots."""
+    from helpers import config
+
+    def step():
+        n = audio.level % 5 + 1
+        audio.set_level(n)
+        config.state_save("volume_level", n)
+        audio.beep(n=1)                      # a beep at the new level
+        return n
+
+    return {"get_level": lambda: audio.level, "volume_step": step}
+
+
+class Hud:
+    def __init__(self, cfg, role, i2c):
+        u = cfg["ui"]
+        self.u = u
+        self.role = role
+        self.is_parent = role != "master"            # loopback behaves like the parent unit
+        self.bat = AXP2101(i2c)
+        self._binfo = None
+        self._btime = 0
+        self.display = None
+        self.gfx = None
+        self.last_draw_ms = 0
+        self.state = OFF
+        self._until = 0
+        self._phase = 0
+        self._phase_t = 0
+        self.link_ok = False
+        self.peer = (None, False)                    # battery of the other unit
+        self.alert_active = False
+        self._dismissed = False
+        self._hold_until = 0
+        self.muted_until = None
+        self.idx = 0
+        self.test = None
+        self.actions = {}
+        self._press_t = None
+        self._test_draw_t = 0
+        from machine import Pin
+        self.btn = Pin(board.BOOT, Pin.IN, Pin.PULL_UP)
+        if u["enabled"]:
+            try:
+                from board.display import Display
+                from ui.gfx import Gfx
+                self.display = Display(i2c, manual=u.get("manual_refresh", False))
+                self.display.init()
+                self.gfx = Gfx(self.display.panel, board.LCD_W, board.LCD_H)
+                print("[ui] screen ready")
+            except Exception as e:
+                print("[ui] screen disabled:", e)
+                self.display = None
+
+    # ------------------------------------------------------------ helpers
+    def set_actions(self, **kw):
+        self.actions.update(kw)
+
+    def _fail(self, e):
+        print("[ui] error, screen disabled:", e)
+        try:
+            self.display.hide()
+        except Exception:
+            pass
+        self.display = None
+
+    def battery_info(self, now=None):
+        """(percent or None, charging) of this unit, refreshed at most every 30 s."""
+        try:
+            now = time.ticks_ms() if now is None else now
+            if self._binfo is None or time.ticks_diff(now, self._btime) > BATT_REFRESH_MS:
+                self._binfo = self.bat.read()
+                self._btime = now
+            return self._binfo[0], self._binfo[1]
+        except Exception:
+            return None, False
+
+    def muted(self, now):
+        return self.muted_until is not None and time.ticks_diff(self.muted_until, now) > 0
+
+    def _expired(self, now, t):
+        return time.ticks_diff(now, t) >= 0
+
+    # ------------------------------------------------------------ events from the roles
+    def on_link(self, up):
+        try:
+            if up == self.link_ok:
+                return
+            was = self.link_ok
+            self.link_ok = up
+            now = time.ticks_ms()
+            if up:
+                self.muted_until = None
+                if self.state in (LINKLOST, OFF) and self.is_parent:
+                    self._go(STATUS, now, self.u["status_s"] * 1000)
+            elif self.is_parent and was:
+                self._go(LINKLOST, now, None)
+        except Exception as e:
+            self._fail(e)
+
+    def on_peer_status(self, pct, charging):
+        self.peer = (pct, charging)
+
+    def on_alert_start(self):
+        try:
+            self.alert_active = True
+            self._dismissed = False
+            if self.is_parent:
+                self._go(ALARM, time.ticks_ms(), None)
+        except Exception as e:
+            self._fail(e)
+
+    def on_alert_end(self):
+        try:
+            self.alert_active = False
+            self._hold_until = time.ticks_add(time.ticks_ms(), self.u["alert_hold_s"] * 1000)
+        except Exception as e:
+            self._fail(e)
+
+    def on_test_audio(self, level_db):
+        t = self.test
+        if t is not None and t["result"] is None:
+            t["pkts"] += 1
+            t["level"] = max(level_db, t["level"] - 2)
+
+    def on_test_end(self):
+        if self.test is not None:
+            self.test["ended"] = True
+
+    # ------------------------------------------------------------ state machine
+    def _go(self, state, now, hold_ms):
+        self.state = state
+        self._phase = 0
+        self._phase_t = now
+        if hold_ms is not None:
+            self._until = time.ticks_add(now, hold_ms)
+        self._draw(now)
+
+    def _present(self, draw, brightness):
+        """Draw a screen (the panel is still dark if it was off), then show it at this brightness."""
+        t0 = time.ticks_ms()
+        draw(self.gfx)
+        self.display.show(brightness)
+        self.last_draw_ms = time.ticks_diff(time.ticks_ms(), t0)
+
+    def _draw(self, now):
+        if self.display is None:
+            return
+        from ui import screens as S
+        u = self.u
+        s = self.state
+        if s == OFF:
+            self.display.hide()
+        elif s == STATUS:
+            me = self.battery_info(now)
+            title = "PARENT UNIT" if self.is_parent else "CHILD ROOM"
+            other = "CHILD" if self.is_parent else "PARENT"
+            hint = "HOLD BUTTON: MENU" if self.is_parent else ""
+            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint), u["brightness"])
+        elif s in (ALARM, PREVIEW):
+            ph = self._phase
+            self._present(lambda g: S.draw_alarm(g, ph), u["alarm_brightness"])
+        elif s == LINKLOST:
+            ph = self._phase
+            self._present(lambda g: S.draw_linklost(g, ph), u["alarm_brightness"])
+        elif s == MENU:
+            idx = self.idx
+            gl = self.actions.get("get_level")
+            gs = self.actions.get("get_sens")
+            labels = []
+            for n in MENU_ITEMS:
+                if n == "VOLUME" and gl:
+                    n = "VOLUME %d" % gl()
+                elif n == "MIC" and gs:
+                    n = "MIC %d" % gs()
+                labels.append(n)
+            self._present(lambda g: S.draw_menu(g, labels, idx), u["brightness"])
+        elif s == TEST:
+            t = self.test or {"deadline": now, "pkts": 0, "level": -99.0, "result": None}
+            rem = max(0, time.ticks_diff(t["deadline"], now) // 1000)
+            self._present(lambda g: S.draw_test(g, rem, t["pkts"], t["level"], t["result"]), u["brightness"])
+
+    def _button(self, now):
+        down = self.btn.value() == 0
+        if down and self._press_t is None:
+            self._press_t = now
+        elif not down and self._press_t is not None:
+            held = time.ticks_diff(now, self._press_t)
+            self._press_t = None
+            if held >= LONG_MS:
+                return "long"
+            if held >= 40:
+                return "short"
+        return None
+
+    def _on_button(self, ev, now):
+        s = self.state
+        u = self.u
+        if s == OFF:
+            if ev == "long" and self.is_parent:
+                self.idx = 0
+                self._go(MENU, now, 20000)
+            else:
+                self._go(STATUS, now, u["status_s"] * 1000)
+        elif s == STATUS:
+            if ev == "long" and self.is_parent:
+                self.idx = 0
+                self._go(MENU, now, 20000)
+            elif ev == "long":
+                self._go(OFF, now, None)
+            else:
+                self._go(STATUS, now, u["status_s"] * 1000)
+        elif s == ALARM:
+            self._dismissed = True
+            self._go(OFF, now, None)
+        elif s == LINKLOST:
+            self.muted_until = time.ticks_add(now, u["mute_s"] * 1000)
+            self._go(OFF, now, None)
+        elif s == MENU:
+            if ev == "short":
+                self.idx = (self.idx + 1) % len(MENU_ITEMS)
+                self._go(MENU, now, 20000)
+            else:
+                self._select(now)
+        elif s == TEST:
+            self.test = None
+            self._go(MENU, now, 20000)
+        elif s == PREVIEW:
+            self._go(OFF, now, None)
+
+    def _select(self, now):
+        item = MENU_ITEMS[self.idx]
+        if item == "TEST LIVE":
+            fn = self.actions.get("test_live")
+            ok = bool(fn and fn(self.u["test_s"]))
+            self.test = {"deadline": time.ticks_add(now, self.u["test_s"] * 1000), "pkts": 0,
+                         "level": -99.0, "result": None if ok else False, "ended": False}
+            self._go(TEST, now, 6000 if not ok else None)
+        elif item == "MIC":
+            fn = self.actions.get("sens_step")
+            if fn:
+                fn()
+            self._go(MENU, now, 20000)
+        elif item == "VOLUME":
+            fn = self.actions.get("volume_step")
+            if fn:
+                fn()
+            self._go(MENU, now, 20000)
+        elif item == "TEST ALARM":
+            self._go(PREVIEW, now, 4000)
+            fn = self.actions.get("alarm_preview")
+            if fn:
+                fn()
+        else:
+            self._go(OFF, now, None)
+
+    def tick(self, now):
+        """Call once per loop (cheap when nothing changes)."""
+        try:
+            ev = self._button(now)
+            if ev and (self.display is not None):
+                self._on_button(ev, now)
+            elif ev and self.state == LINKLOST:
+                self.muted_until = time.ticks_add(now, self.u["mute_s"] * 1000)
+            if self.display is None:
+                return
+            s = self.state
+            if s == OFF:
+                return
+            if s == STATUS:
+                if self._expired(now, self._until):
+                    self._go(OFF, now, None)
+                elif time.ticks_diff(now, self._btime) > BATT_REFRESH_MS - 1000:
+                    self._draw(now)
+            elif s in (ALARM, LINKLOST):
+                if self.u["flash_ms"] and time.ticks_diff(now, self._phase_t) >= self.u["flash_ms"]:
+                    self._phase ^= 1
+                    self._phase_t = now
+                    self._draw(now)
+                if s == ALARM and not self.alert_active and self._expired(now, self._hold_until):
+                    self._go(OFF, now, None)
+            elif s == MENU:
+                if self._expired(now, self._until):
+                    self._go(OFF, now, None)
+            elif s == PREVIEW:
+                if self._expired(now, self._until):
+                    self._go(OFF, now, None)
+            elif s == TEST:
+                t = self.test
+                if t is None:
+                    return
+                if t["result"] is None:
+                    done = t["ended"] or time.ticks_diff(now, t["deadline"]) > 3000
+                    if done:
+                        need = self.u["test_s"] * 50 * 0.5
+                        t["result"] = t["pkts"] >= need
+                        self._go(TEST, now, 8000)
+                    elif time.ticks_diff(now, self._test_draw_t) >= 250:
+                        self._test_draw_t = now
+                        self._draw(now)
+                elif self._expired(now, self._until):
+                    self.test = None
+                    self._go(MENU, now, 20000)
+        except Exception as e:
+            self._fail(e)
+
+
+class NullHud:
+    """Same interface as Hud, does nothing (used when a role is run without a HUD)."""
+    link_ok = False
+
+    def set_actions(self, **kw):
+        pass
+
+    def battery_info(self, now=None):
+        return None, False
+
+    def muted(self, now):
+        return False
+
+    def on_link(self, up):
+        pass
+
+    def on_peer_status(self, pct, charging):
+        pass
+
+    def on_alert_start(self):
+        pass
+
+    def on_alert_end(self):
+        pass
+
+    def on_test_audio(self, level_db):
+        pass
+
+    def on_test_end(self):
+        pass
+
+    def tick(self, now):
+        pass

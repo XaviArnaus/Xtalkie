@@ -1,0 +1,7 @@
+{
+  "role": "master",
+  "wifi": {"ssid": "babymon", "password": "choose-8-or-more-characters"},
+  "auto_reboot": false,
+  "ui": {"flash_ms": 0},
+  "master": {"sens_level": 3}
+}
