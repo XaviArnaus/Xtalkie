@@ -30,6 +30,13 @@ CODE = (
 )
 
 
+MARK_MANUAL = ("import sys; sys.path.insert(0, '/lib')\n"
+               "try:\n"
+               "    from helpers import bootinfo; bootinfo.mark_manual()\n"
+               "except Exception:\n"
+               "    pass\n")
+
+
 def parse_devs(text):
     """Serial ports out of `mpremote devs` (first column), without the Bluetooth / console pseudo-ports."""
     ports = []
@@ -77,6 +84,7 @@ def main():
             r = mpremote("connect", port, "exec", CODE)
             ver, role = parse_answer(r.stdout)
             if not args.no_reset:
+                mpremote("connect", port, "exec", MARK_MANUAL)     # a person restarts it: show the start-up screen
                 mpremote("connect", port, "reset")
         except Exception as e:
             ver, role = "unreadable (%s)" % type(e).__name__, "?"

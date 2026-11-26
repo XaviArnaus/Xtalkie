@@ -104,6 +104,8 @@ def main():
     os.unlink(tmp)
 
     if not args.no_reset:
+        # tell the board a person restarts it (so the child unit shows its start-up screen); old code may lack this
+        mp("exec", "import sys; sys.path.insert(0, '/lib'); from helpers import bootinfo; bootinfo.mark_manual()", check=False)
         mp("reset")
     print("done.")
 

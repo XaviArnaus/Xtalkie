@@ -32,6 +32,9 @@ DEFAULTS = {
         "flash_ms": 0,           # bell / no-link flashing period in ms (0 = no flashing, a steady picture)
         "test_s": 10,            # length of the live test
         "mute_s": 300,           # BOOT on the no-link screen silences the beeps for this long
+        "boot_screen": "auto",   # start-up screen: auto (the child unit stays dark after an automatic restart) | always | never
+        "boot_beep": True,       # one short beep when a person switches the unit on (never after an automatic restart)
+        "ready_s": 4,            # how long the "ready" start-up screen stays
     },
     "master": {"preroll_lead_ms": 200, "hb_ms": 1000, "verbose": True,
                "sens_level": 3,      # 1 (least sensitive) .. 5 (most); the parent unit's MIC menu changes it

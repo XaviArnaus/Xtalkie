@@ -13,7 +13,7 @@ import board
 import version
 from drivers.axp2101 import AXP2101
 
-OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW = 0, 1, 2, 3, 4, 5, 6
+OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT = 0, 1, 2, 3, 4, 5, 6, 7
 MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "EXIT")
 LONG_MS = 1200
 BATT_REFRESH_MS = 30000
@@ -34,7 +34,9 @@ def volume_actions(audio):
 
 
 class Hud:
-    def __init__(self, cfg, role, i2c):
+    def __init__(self, cfg, role, i2c, shared=None):
+        """shared = (display, gfx) already opened by main.py (either may be None: screen off). Without it the
+        HUD opens the panel itself."""
         u = cfg["ui"]
         self.u = u
         self.role = role
@@ -64,19 +66,22 @@ class Hud:
         self._test_draw_t = 0
         from machine import Pin
         self.btn = Pin(board.BOOT, Pin.IN, Pin.PULL_UP)
-        if u["enabled"]:
-            try:
-                from board.display import Display
-                from ui.gfx import Gfx
-                self.display = Display(i2c, manual=u.get("manual_refresh", False))
-                self.display.init()
-                self.gfx = Gfx(self.display.panel, board.LCD_W, board.LCD_H)
-                print("[ui] screen ready")
-            except Exception as e:
-                print("[ui] screen disabled:", e)
-                self.display = None
+        if shared is not None:
+            self.display, self.gfx = shared
+        else:
+            from ui.boot import open_screen
+            self.display, self.gfx = open_screen(cfg, i2c)
 
     # ------------------------------------------------------------ helpers
+    def hold_boot(self, ms):
+        """The start-up screen is on the panel (drawn by ui/boot.py): leave it there for ms, then show the status
+        screen (parent unit) or go dark (child unit). A button press or an alarm ends it earlier. Does nothing
+        when nothing was drawn (child unit after an automatic restart)."""
+        if self.display is None or not self.display.on:
+            return
+        self.state = BOOT
+        self._until = time.ticks_add(time.ticks_ms(), ms)
+
     def set_actions(self, **kw):
         self.actions.update(kw)
 
@@ -231,7 +236,7 @@ class Hud:
     def _on_button(self, ev, now):
         s = self.state
         u = self.u
-        if s == OFF:
+        if s == OFF or s == BOOT:
             if ev == "long" and self.is_parent:
                 self.idx = 0
                 self._go(MENU, now, 20000)
@@ -302,7 +307,13 @@ class Hud:
             s = self.state
             if s == OFF:
                 return
-            if s == STATUS:
+            if s == BOOT:
+                if self._expired(now, self._until):
+                    if self.is_parent:
+                        self._go(STATUS, now, self.u["status_s"] * 1000)
+                    else:
+                        self._go(OFF, now, None)
+            elif s == STATUS:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
                 elif time.ticks_diff(now, self._btime) > BATT_REFRESH_MS - 1000:
@@ -360,6 +371,9 @@ class NullHud:
         pass
 
     def on_peer_version(self, v):
+        pass
+
+    def hold_boot(self, ms):
         pass
 
     def on_alert_start(self):

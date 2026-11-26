@@ -19,6 +19,7 @@ class Net:
         self.wlan = None
         self.sock = None
         self._last_try = 0
+        self._joined = False
 
     def _up(self, network, iface):
         """Bring an interface up from a clean state. After a soft reboot (Thonny's Run / Ctrl+D) the previous
@@ -57,7 +58,13 @@ class Net:
                 time.sleep_ms(500)
         return False
 
-    def start(self, wifi=True):
+    def joined(self):
+        """True when the network is usable: access point up, station joined, or no WiFi at all (tests)."""
+        return self.wlan is None or self.mode == "ap" or self.wlan.isconnected()
+
+    def start(self, wifi=True, wait=True):
+        """wait=False (the slave at boot): start joining and return at once; ensure() keeps trying and joined()
+        says when it worked. wait=True: wait up to 15 s for the join."""
         if wifi:
             import network
             if self.mode == "ap":
@@ -76,13 +83,17 @@ class Net:
             else:
                 self.wlan = self._up(network, network.STA_IF)
                 self._connect()
-                t0 = time.ticks_ms()
-                while not self.wlan.isconnected() and time.ticks_diff(time.ticks_ms(), t0) < 15000:
-                    time.sleep_ms(250)
+                if wait:
+                    t0 = time.ticks_ms()
+                    while not self.wlan.isconnected() and time.ticks_diff(time.ticks_ms(), t0) < 15000:
+                        time.sleep_ms(250)
                 if self.wlan.isconnected():
+                    self._joined = True
                     print("[net] joined '%s', ip %s" % (self.ssid, self.wlan.ifconfig()[0]))
-                else:
+                elif wait:
                     print("[net] '%s' not found yet, will keep trying" % self.ssid)
+                else:
+                    print("[net] searching for '%s' ..." % self.ssid)
             pm = network.WLAN.PM_NONE                          # no power saving: lowest latency
             if self.mode == "sta":                             # an access point can not sleep, a station can
                 pm = {"min": network.WLAN.PM_PERFORMANCE, "max": network.WLAN.PM_POWERSAVE}.get(self.power_save, pm)
@@ -99,7 +110,14 @@ class Net:
         if self.mode != "sta" or self.wlan is None:
             return
         if self.wlan.isconnected():
+            if not self._joined:
+                self._joined = True
+                try:
+                    print("[net] joined '%s', ip %s" % (self.ssid, self.wlan.ifconfig()[0]))
+                except Exception:
+                    pass
             return
+        self._joined = False
         now = time.ticks_ms()
         if time.ticks_diff(now, self._last_try) > 5000:
             self._last_try = now
@@ -130,8 +148,11 @@ class LoopbackNet:
     def __init__(self):
         self.packets = []
 
-    def start(self, wifi=True):
+    def start(self, wifi=True, wait=True):
         pass
+
+    def joined(self):
+        return True
 
     def ensure(self):
         pass

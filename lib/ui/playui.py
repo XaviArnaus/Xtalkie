@@ -7,23 +7,15 @@ import time
 
 
 class PlayUi:
-    def __init__(self, cfg, i2c):
-        self.display = None
-        self.gfx = None
+    def __init__(self, cfg, i2c, shared=None):
+        """shared = (display, gfx) already opened by main.py; without it the panel is opened here."""
         self.brightness = cfg["ui"]["brightness"]
         self._shown = time.ticks_ms()
-        if cfg["ui"]["enabled"]:
-            try:
-                import board
-                from board.display import Display
-                from ui.gfx import Gfx
-                self.display = Display(i2c, manual=cfg["ui"].get("manual_refresh", False))
-                self.display.init()
-                self.gfx = Gfx(self.display.panel, board.LCD_W, board.LCD_H)
-                print("[ui] screen ready")
-            except Exception as e:
-                print("[ui] screen disabled:", e)
-                self.display = None
+        if shared is not None:
+            self.display, self.gfx = shared
+        else:
+            from ui.boot import open_screen
+            self.display, self.gfx = open_screen(cfg, i2c)
 
     def _present(self, state, clips):
         if self.display is None:

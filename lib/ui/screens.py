@@ -31,6 +31,25 @@ def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=N
         g.text_c(hint, 424, 2, GRAY)
 
 
+ROLE_NAMES = {"master": "CHILD ROOM", "slave": "PARENT UNIT", "play": "PLAY MODE", "loopback": "LOOPBACK TEST"}
+
+
+def draw_boot(g, version, role, steps):
+    """Start-up: name, version, role, and the steps. steps = [(label, status)]: None = not yet, "OK" = green,
+    "-" = not used in this role (gray), anything else (e.g. "SEARCHING") = amber."""
+    g.clear(BLACK)
+    g.text_c("XTALKIE", 40, 6, WHITE)
+    g.text_c(version, 100, 3 if len(version) <= 18 else 2, GRAY)
+    g.text_c(ROLE_NAMES.get(role, str(role).upper()), 140, 3, WHITE)
+    g.rect(20, 190, 328, 2, DGRAY)
+    for i, (label, status) in enumerate(steps):
+        y = 215 + i * 46
+        g.text(label, 30, y, 3, WHITE if status else DGRAY)
+        if status:
+            col = GREEN if status == "OK" else (GRAY if status == "-" else AMBER)
+            g.text(status, 338 - g.text_w(status, 3), y, 3, col)
+
+
 def draw_alarm(g, phase):
     g.clear(RED if phase == 0 else BLACK)
     c = WHITE if phase == 0 else ORANGE

@@ -76,6 +76,20 @@ Board: Waveshare ESP32-S3-Touch-AMOLED-1.8, original revision (SH8601 panel, FT3
    `state.json`, `config.json` and the log files are kept.
 4. Same `ssid` / `password` on both boards. `--night` (or `"auto_reboot": true`) restarts a board after a crash or hang.
 
+### Start-up
+
+At power-up a unit shows the start-up screen (name, version, role; steps CONFIG, AUDIO, NETWORK, READY), gives one short
+beep, and after `ui.ready_s` seconds moves on (the parent unit shows its status screen). The same steps are printed
+with their times (`[boot] +123 ms ...`). The slave does not wait for WiFi: NETWORK shows SEARCHING and the unit is
+usable at once.
+
+**The child unit never lights the room after an automatic restart** (crash, watchdog, reset button): it lights its
+screen and beeps only when a person started it. The decision uses a marker in RTC memory plus `machine.reset_cause()`;
+both raw values are printed and logged at every boot (`[boot] last run ended: ...; reset cause: ...`, and
+`boot,...,prev=,cause=,manual=` in `events.csv`). `deploy.py` and `versions.py` mark their restarts as manual. If a
+board behaves differently from this on the real hardware, `"ui": {"boot_screen": "always"}` (or `"never"`) in its
+`config.json` forces the screen on (or off) and `"boot_beep": false` silences the beep.
+
 ### Software version
 
 Every board knows its version (`lib/version.py`): printed at boot, in the log (`boot,...,ver=`), and in small text under
@@ -135,7 +149,8 @@ disp_off/disp_on on this firmware); `battery_check.py` raw power-chip readings; 
 `role`, `port`, `cpu_mhz` (80/160/240, default 160), `auto_reboot`, `watchdog_ms`, `log`; `wifi` {ssid, password, channel, mode, master_ip, power_save (station side: none/min/max)};
 `audio` {mic_gain, volume, playback_gain, agc, agc_max_gain, volume_level}; `gate` {any `dsp/gate.py` setting}; `play` {trig_db, end_db, hang_ms, pre_ms, tail_ms, min_ms, max_s, speed, save, dir, max_total_kb, min_free_kb, idle_off_s};
 `master` {sens_level, max_open_s, cooldown_s, preroll_lead_ms}; `slave` {jitter_frames, link_timeout_ms, ...};
-`ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s, mute_s}.
+`ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s, mute_s,
+boot_screen, boot_beep, ready_s}.
 Settings changed from the menu live in `state.json`, not in config.json.
 
 ## Tests
