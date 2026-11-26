@@ -34,7 +34,7 @@ Switch the PARENT off and on with its power switch.
 ## 2. Child unit stays dark (CHILD)
 
 - [ ] Power-switch the CHILD off and on: start-up screen with one beep, then dark after 4 s. (Hint line shows for 3 s.)
-- [ ] Press the CHILD's **RESET** button: the screen stays **dark** and silent. Tap BOOT: the status screen's bottom line says
+- [ ] Restart the CHILD without marking it as a person's doing: `python -m mpremote connect <port> reset` (these boards have no RESET button; close Thonny and `pc/watch.py` first, and the CHILD must be running main.py): the screen stays **dark** and silent. Tap BOOT: the status screen's bottom line says
   `RESTART: NO CLEAN STOP` (or `OTHER`). **[send the serial output of this boot if it lit up, or the bottom line if not]**
 - [ ] The CHILD never lights or beeps on its own during all of the tests below. Note if it does.
 - [ ] CHILD hold on status: dark. CHILD has no menu, however long you hold.
@@ -43,7 +43,7 @@ Switch the PARENT off and on with its power switch.
 
 - [ ] PARENT shows the status screen when the link comes up: green check, CONNECTED, battery of both units, version `0.6.x <commit>`.
 - [ ] No amber line on either unit (same version). The CHILD status shows `STARTED BY A PERSON` at the bottom.
-- [ ] Press **RESET** on the CHILD, wait for the link: the PARENT shows (tap BOOT if needed) amber `CHILD RESTARTED`, and stays so.
+- [ ] Restart the CHILD the same way (`mpremote ... reset`), wait for the link: the PARENT shows (tap BOOT if needed) amber `CHILD RESTARTED`, and stays so.
 - [ ] Power-switch the CHILD off and on: the amber `CHILD RESTARTED` line disappears once it reports again.
   If it stays, the RTC memory survives the power switch (the battery keeps it alive): **[send]** that, and which unit.
 - [ ] Optional: change `VERSION` in `/lib/version.py` on one board (Thonny), reset it: the other shows amber `CHILD HAS ...` / `PARENT HAS ...`.
@@ -91,13 +91,13 @@ Hold BOOT on the PARENT (about 1.5 s), let go.
 - [ ] Power-switch the PARENT on, and as soon as the hint `HOLD BUTTON 2 S: CHOOSE ROLE` shows, hold BOOT for at least 2 s, then let go: the role list opens.
   (Do not hold BOOT while switching on: that enters download mode.)
 - [ ] Choosing the current role or BACK carries on starting normally. Doing nothing for 2 minutes also carries on.
-- [ ] Power-switch the CHILD on and hold as above: the chooser opens (a person started it). After a RESET-button restart it does **not** wait.
+- [ ] Power-switch the CHILD on and hold as above: the chooser opens (a person started it). After an automatic restart (`mpremote ... reset`) it does **not** wait.
 
 ## 9. WiFi order and slow start
 
 - [ ] Switch the PARENT on **before** the CHILD: it is usable at once (menu works), shows NO LINK, then the link comes up by itself when the CHILD is on. `[net] joined` appears in the serial output.
 
-## 10. Crash loop (do this one last; it needs Thonny)
+## 10. Crash loop (do this one last; it needs Thonny to edit the file, and `pc/watch.py` to read the output)
 
 The two crashes are made on purpose with a bad config. Both use `auto_reboot` so the board restarts itself.
 
