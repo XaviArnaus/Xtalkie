@@ -353,7 +353,8 @@ class Hud:
             elif ev == "long":
                 self._go(OFF, now, None)
             else:
-                self._go(STATUS, now, u["status_s"] * 1000)
+                self._until = time.ticks_add(now, u["status_s"] * 1000)    # restart the timer without redrawing: a draw takes
+                                                                           # ~200 ms during which BOOT is not read (missed taps)
         elif s == ALARM:
             self._dismissed = True
             self._go(OFF, now, None)

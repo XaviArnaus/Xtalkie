@@ -79,7 +79,7 @@ def run(cfg, audio, net, hud=None):
             now = time.ticks_ms()
             hud.tick(now)
             bootinfo.stable_check(now)             # after a minute of running, a crash loop is over
-            net.ensure()
+            net.ensure(link_up)
 
             # ---- receive everything that is waiting ----
             for _ in range(10):

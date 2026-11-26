@@ -75,6 +75,28 @@ n.wlan.connected = False
 n._last_try = -10000
 n.ensure()
 check(any(l[0] == "connect" for l in log[-4:]), "ensure() reconnects later")
+import time
+n = start("slave")
+n.ensure(True)
+n.ensure(False)
+log.clear()
+n.ensure(False)
+check(not log, "a short silence (under 20 s) changes nothing, even with the WiFi 'connected'")
+n._down_since = time.ticks_add(time.ticks_ms(), -25000)         # silent for 25 s while isconnected() is still True
+n.ensure(False)
+check(("active", 0, False) in log and ("active", 0, True) in log and any(l[0] == "connect" for l in log),
+      "25 s of silence restarts the WiFi interface and connects again, although isconnected() was True")
+log.clear()
+n.ensure(False)
+check(not log, "... but not again within 30 s")
+n._last_reset = time.ticks_add(time.ticks_ms(), -31000)
+n.ensure(False)
+check(("active", 0, False) in log, "... and again after 30 s if it is still silent")
+log.clear()
+n.ensure(True)
+n._down_since = None
+n.ensure(True)
+check(not any(l[0] == "active" for l in log), "a healthy link is never restarted")
 n = start("slave", active=2)
 check(n.wlan.up and n.wlan.connected, "the interface is restarted when 'Wifi Internal State Error' hits active(True)")
 n = start("master", config=1)

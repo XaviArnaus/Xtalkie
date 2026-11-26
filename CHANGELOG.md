@@ -3,6 +3,18 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.6.4
+- Parent unit: after the child unit restarted, the two stayed at NO LINK for minutes (found while redeploying).
+  Cause not proven (no serial output of that moment); likely a stale association or a driver stuck refusing
+  connect(). Now: the parent counts how long it hears nothing from the child. After 20 s it restarts its WiFi
+  interface from scratch (the way start-up does), whatever `isconnected()` says, and again every 30 s while the
+  silence lasts. A healthy link is never touched. New serial lines: `[net] WiFi connection lost, reconnecting`,
+  `[net] nothing heard from the other unit for N s: restarting the WiFi interface`.
+- The 3-tap sound switch needed several tries on the board: every tap redrew the screen (about 200 ms, BOOT is not
+  read meanwhile). A tap on the status screen now only restarts its timer, and the allowed gap between taps is
+  1200 ms (`ui.mute_gap_ms`, was 800).
+- UNVERIFIED on the boards. Expected time to find the child again after a restart: about 10 to 40 s.
+
 ## 0.6.3
 - Parent unit: BOOT on the bell screen now also STOPS THE VOICE of that alert (before, only the screen went dark and
   the audio played to the end). The rest of that stream is dropped; the next alert plays normally.

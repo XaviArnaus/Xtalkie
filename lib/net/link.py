@@ -2,6 +2,9 @@
 import socket
 import time
 
+RECOVER_MS = 20000          # station: this long without hearing the other unit -> restart the WiFi interface
+RECOVER_EVERY_MS = 30000    # ... and not more often than this
+
 
 class Net:
     def __init__(self, cfg, role):
@@ -20,6 +23,8 @@ class Net:
         self.sock = None
         self._last_try = 0
         self._joined = False
+        self._down_since = None                 # since when the application hears nothing from the other unit
+        self._last_reset = time.ticks_add(time.ticks_ms(), -RECOVER_EVERY_MS)
 
     def _up(self, network, iface):
         """Bring an interface up from a clean state. After a soft reboot (Thonny's Run / Ctrl+D) the previous
@@ -105,9 +110,45 @@ class Net:
         self.sock.bind(("0.0.0.0", self.port))
         self.sock.setblocking(False)
 
-    def ensure(self):
-        """Station mode: reconnect if the link dropped (at most every 5 s)."""
+    def _recover(self, now, why):
+        """Start the station over from a clean state (the way start() does): the driver can sit in a state where
+        connect() keeps being refused, or hold an association with an access point that has restarted."""
+        self._last_reset = now
+        self._last_try = now
+        self._joined = False
+        print("[net] %s: restarting the WiFi interface" % why)
+        try:
+            self.wlan.disconnect()
+        except OSError:
+            pass
+        try:
+            import network
+            self.wlan = self._up(network, network.STA_IF)
+            self._connect()
+            try:
+                pm = {"min": network.WLAN.PM_PERFORMANCE, "max": network.WLAN.PM_POWERSAVE}.get(self.power_save, network.WLAN.PM_NONE)
+                self.wlan.config(pm=pm)
+            except Exception:
+                pass
+        except Exception as e:
+            print("[net] restart of the WiFi interface failed:", e)
+
+    def ensure(self, link_ok=None):
+        """Station mode: reconnect if the link dropped (at most every 5 s). link_ok = the application's view (False:
+        nothing heard from the other unit). If that lasts more than RECOVER_MS the WiFi interface is restarted from
+        scratch, at most every RECOVER_EVERY_MS, whatever isconnected() says (a stale association after the access
+        point restarted looks 'connected' but carries nothing)."""
         if self.mode != "sta" or self.wlan is None:
+            return
+        now = time.ticks_ms()
+        if link_ok is not None:
+            if link_ok:
+                self._down_since = None
+            elif self._down_since is None:
+                self._down_since = now
+        if (self._down_since is not None and time.ticks_diff(now, self._down_since) > RECOVER_MS
+                and time.ticks_diff(now, self._last_reset) >= RECOVER_EVERY_MS):
+            self._recover(now, "nothing heard from the other unit for %d s" % (time.ticks_diff(now, self._down_since) // 1000))
             return
         if self.wlan.isconnected():
             if not self._joined:
@@ -117,8 +158,9 @@ class Net:
                 except Exception:
                     pass
             return
+        if self._joined:
+            print("[net] WiFi connection lost, reconnecting")
         self._joined = False
-        now = time.ticks_ms()
         if time.ticks_diff(now, self._last_try) > 5000:
             self._last_try = now
             try:
@@ -154,7 +196,7 @@ class LoopbackNet:
     def joined(self):
         return True
 
-    def ensure(self):
+    def ensure(self, link_ok=None):
         pass
 
     def send(self, data, addr):
