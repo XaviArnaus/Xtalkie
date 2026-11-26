@@ -1,4 +1,4 @@
-"""Helpers for the threaded master/slave simulations: fake audio hardware, real UDP on localhost."""
+"""Helpers for the threaded child/parent simulations: fake audio hardware, real UDP on localhost."""
 import builtins
 import struct
 import threading
@@ -7,7 +7,7 @@ import time
 FR = 320
 
 
-class MasterAudio:
+class ChildAudio:
     """Scripted microphone, paced in real time. The frame index is stored in the samples."""
 
     def __init__(self, events, stop_s):
@@ -38,7 +38,7 @@ class MasterAudio:
         return struct.pack("<%dh" % FR, *([idx] * FR)), lvl, z
 
 
-class SlaveAudio:
+class ParentAudio:
     level = 4
 
     def __init__(self):
@@ -82,9 +82,9 @@ class Capture:
         return sum(1 for l in self.lines if text in l)
 
 
-def run_pair(master_mod, slave_mod, mcfg, scfg, maudio, saudio, mhud, shud, mnet, snet, slave_seconds, extra=()):
-    """Run the master (until its audio stops) and the slave (for slave_seconds) as two threads."""
-    deadline = time.monotonic() + slave_seconds
+def run_pair(child_mod, parent_mod, mcfg, scfg, maudio, saudio, mhud, shud, mnet, snet, parent_seconds, extra=()):
+    """Run the child (until its audio stops) and the parent (for parent_seconds) as two threads."""
+    deadline = time.monotonic() + parent_seconds
     orig = snet.recv
 
     def recv():
@@ -95,11 +95,11 @@ def run_pair(master_mod, slave_mod, mcfg, scfg, maudio, saudio, mhud, shud, mnet
     snet.recv = recv
 
     def rm():
-        try: master_mod.run(mcfg, maudio, mnet, mhud)
+        try: child_mod.run(mcfg, maudio, mnet, mhud)
         except KeyboardInterrupt: pass
 
     def rs():
-        try: slave_mod.run(scfg, saudio, snet, shud)
+        try: parent_mod.run(scfg, saudio, snet, shud)
         except KeyboardInterrupt: pass
 
     ts, tm = threading.Thread(target=rs), threading.Thread(target=rm)

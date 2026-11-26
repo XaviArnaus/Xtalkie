@@ -2,9 +2,24 @@
 from ui.gfx import BLACK, WHITE, RED, GREEN, AMBER, ORANGE, GRAY, DGRAY
 
 
-def draw_status(g, title, link_ok, me, other, other_name, hint):
+def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=None, restart=None, note=None, sound_off=False):
+    """ver = this unit's software version (small, under the title). Amber lines under the link text:
+    restart = the OTHER unit restarted by itself (None = no, 0 = no, n > 0 = yes, n - 1 crashes in a row);
+    warn = the OTHER unit's version when it differs from ours. note = how THIS unit started, in gray at the
+    bottom (only where there is no hint line, i.e. on the child unit)."""
     g.clear(BLACK)
+    if sound_off:
+        g.text_c("SOUND OFF", 2, 2, AMBER)      # parent unit muted by hand: stays on the status screen as a reminder
     g.text_c(title, 18, 4, GRAY)
+    if ver:
+        g.text_c(ver, 50, 2, GRAY)
+    y = 246
+    if restart:
+        crashes = restart - 1
+        g.text_c("%s RESTARTED%s" % (other_name, (" X%d" % crashes) if crashes > 1 else ""), y, 2, AMBER)
+        y += 22
+    if warn:
+        g.text_c("%s HAS %s" % (other_name, warn), y, 2, AMBER)
     g.circle(184, 130, 62, GREEN if link_ok else RED)
     if link_ok:
         g.check(184, 130, 62, WHITE)
@@ -23,6 +38,29 @@ def draw_status(g, title, link_ok, me, other, other_name, hint):
             g.text("%d%%" % pct, 270, y + 13, 4, WHITE)
     if hint:
         g.text_c(hint, 424, 2, GRAY)
+    elif note:
+        g.text_c(str(note)[:28], 424, 2, GRAY)
+
+
+ROLE_NAMES = {"child": "CHILD ROOM", "parent": "PARENT UNIT", "play": "PLAY MODE", "loopback": "LOOPBACK TEST"}
+
+
+def draw_boot(g, version, role, steps, hint=None):
+    """Start-up: name, version, role, and the steps. steps = [(label, status)]: None = not yet, "OK" = green,
+    "-" = not used in this role (gray), anything else (e.g. "SEARCHING") = amber. hint = a line at the bottom."""
+    g.clear(BLACK)
+    if hint:
+        g.text_c(hint, 410, 2, AMBER)
+    g.text_c("XTALKIE", 40, 6, WHITE)
+    g.text_c(version, 100, 3 if len(version) <= 18 else 2, GRAY)
+    g.text_c(ROLE_NAMES.get(role, str(role).upper()), 140, 3, WHITE)
+    g.rect(20, 190, 328, 2, DGRAY)
+    for i, (label, status) in enumerate(steps):
+        y = 215 + i * 46
+        g.text(label, 30, y, 3, WHITE if status else DGRAY)
+        if status:
+            col = GREEN if status == "OK" else (GRAY if status == "-" else AMBER)
+            g.text(status, 338 - g.text_w(status, 3), y, 3, col)
 
 
 def draw_alarm(g, phase):
@@ -41,15 +79,37 @@ def draw_linklost(g, phase):
     g.text_c("BUTTON: MUTE", 420, 2, WHITE if phase == 0 else GRAY)
 
 
-def draw_menu(g, items, idx):
+def draw_menu(g, items, idx, title="MENU"):
     g.clear(BLACK)
-    g.text_c("MENU", 16, 5, GRAY)
+    g.text_c(title, 16, 5, GRAY)
+    pitch = min(72, 360 // max(1, len(items)))          # 5 items: 72 (as before); 6 items: 60
+    box = pitch - 10
     for i, name in enumerate(items):
-        y = 70 + i * 72
+        y = 70 + i * pitch
         sel = i == idx
-        g.rect(24, y, 320, 62, WHITE if sel else DGRAY)
-        g.text_c(name, y + 17, 4, BLACK if sel else WHITE)
+        g.rect(24, y, 320, box, WHITE if sel else DGRAY)
+        g.text_c(name, y + (box - 28) // 2, 4, BLACK if sel else WHITE)
     g.text_c("TAP:NEXT HOLD:OK", 432, 2, GRAY)
+
+
+def draw_confirm(g, role):
+    """Role switch: are you sure? HOLD = yes, TAP = no."""
+    g.clear(BLACK)
+    g.text_c("SWITCH TO", 50, 5, GRAY)
+    name = ROLE_NAMES.get(role, str(role).upper())
+    g.text_c(name, 110, 5 if len(name) <= 11 else 4, WHITE)
+    g.text_c("THE UNIT RESTARTS", 200, 3, AMBER)
+    g.rect(24, 290, 320, 56, GREEN)
+    g.text_c("HOLD: YES", 306, 4, BLACK)
+    g.rect(24, 362, 320, 56, DGRAY)
+    g.text_c("TAP: NO", 378, 4, WHITE)
+
+
+def draw_message(g, title, detail, color):
+    g.clear(BLACK)
+    g.text_c(title, 160, 5, color)
+    if detail:
+        g.text_c(str(detail)[:28], 240, 2, GRAY)
 
 
 def draw_test(g, remaining, pkts, level_db, result):
@@ -73,3 +133,20 @@ def draw_test(g, remaining, pkts, level_db, result):
             g.cross(184, 190, 70, WHITE)
         g.text_c("AUDIO OK" if ok else "NO AUDIO", 300, 6, GREEN if ok else RED)
         g.text_c("PKT %d" % pkts, 370, 4, GRAY)
+
+
+CYAN = (0, 170, 255)
+
+
+def draw_play(g, state, clips):
+    """The play mode: a green ring while it listens, a blue disc while it plays your voice back."""
+    g.clear(BLACK)
+    if state == "playing":
+        g.circle(184, 170, 100, CYAN)
+        g.text_c("LISTEN", 300, 6, CYAN)
+    else:
+        g.circle(184, 170, 100, GREEN)
+        g.circle(184, 170, 78, BLACK)
+        g.circle(184, 170, 28, GREEN)
+        g.text_c("SPEAK", 300, 6, GREEN)
+    g.text_c("CLIPS %d" % clips, 400, 3, GRAY)

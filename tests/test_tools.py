@@ -88,18 +88,37 @@ builtins.print = real
 check(any("net.py" in l for l in out), "main.py warns about old flat-layout files")
 check(sys.path[0] == "/lib" or "/lib" in sys.path[:3], "/lib comes first in the module search path")
 
+# main.py starts the play role
+playcfg = os.path.join(tmp, "play.json")
+open(playcfg, "w").write('{"role": "play", "ui": {"chooser_window_s": 0}}')
+import app.play as _play
+called = []
+_real_run = _play.run
+_play.run = lambda cfg, audio, **k: called.append(cfg["role"])
+try:
+    run(os.path.join(ROOT, "main.py"), lambda s: s.replace("config.load()", "config.load(%r)" % playcfg))
+finally:
+    _play.run = _real_run
+check(called == ["play"], "main.py with role play starts the play mode (before the monitor's screen is set up)")
+
 # deploy dry run
 files = []
 for d in ("lib", "tools"):
     for dp, dn, fn in os.walk(os.path.join(ROOT, d)):
         dn[:] = [x for x in dn if x != "__pycache__"]
         files += [f for f in fn if not f.endswith(".pyc")]
-expected = len(files) + 2 + 1                       # + main.py, README.md, config.json
-p = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "slave", "--ssid", "x", "--password", "y" * 8,
+expected = len(files) + 2 + 1                       # + main.py, README.md, config.json (+ the build stamp, below)
+p = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "parent", "--ssid", "x", "--password", "y" * 8,
                     "--night", "--clean", "--dry-run"], capture_output=True, text=True)
 copies = p.stdout.count("fs cp")
+stamped = any("fs cp" in l and l.endswith(":lib/_build.py") for l in p.stdout.splitlines())
+expected += 1 if stamped else 0                     # the stamp is one more copy when git is available
 check(p.returncode == 0 and copies == expected and "__pycache__" not in p.stdout,
       "pc/deploy.py plans %d file copies (expected %d), no __pycache__" % (copies, expected))
+check("build stamp:" in p.stdout and (stamped or "fs rm :lib/_build.py" in p.stdout),
+      "deploy.py stamps the commit on the board (or removes an old stamp when git is missing)")
+p2 = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "play", "--dry-run"], capture_output=True, text=True)
+check(p2.returncode == 0 and '"role": "play"' in p2.stdout, "pc/deploy.py accepts the play role")
 check('"auto_reboot": true' in p.stdout and "fs rm :board.py" in p.stdout, "deploy.py --night writes auto_reboot and --clean removes the old files")
 shutil.rmtree(tmp, ignore_errors=True)
 finish()

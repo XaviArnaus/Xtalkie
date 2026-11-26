@@ -6,9 +6,9 @@ import re
 from common import ROOT, check, finish, patch_time
 
 patch_time()
-MODULES = ["drivers.es8311", "drivers.axp2101", "drivers.tca9554", "drivers.sh8601",
+MODULES = ["version", "helpers.bootinfo", "ui.boot", "ui.menu", "ui.chooser", "dsp.clipper", "dsp.effects", "helpers.clips", "ui.playui", "app.play", "drivers.es8311", "drivers.axp2101", "drivers.tca9554", "drivers.sh8601",
            "board", "board.audio", "board.display", "helpers.config", "helpers.log", "helpers.watchdog",
-           "net.proto", "net.link", "dsp.gate", "ui.gfx", "ui.screens", "ui.hud", "app.master", "app.slave"]
+           "net.proto", "net.link", "dsp.gate", "ui.gfx", "ui.screens", "ui.hud", "app.child", "app.parent"]
 for m in MODULES:
     importlib.import_module(m)
 check(True, "all %d library modules import" % len(MODULES))

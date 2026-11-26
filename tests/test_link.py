@@ -1,4 +1,4 @@
-"""Master + slave over real UDP with the HUD on both: alert, menu, live test, link loss and mute (about 30 s)."""
+"""Child + parent over real UDP with the HUD on both: alert, menu, live test, link loss and mute (about 30 s)."""
 import time
 
 from common import check, finish, patch_time
@@ -7,10 +7,10 @@ patch_time(real=True)
 import machine
 import ui.hud as ui
 import board
-from app import master, slave
+from app import child, parent
 from helpers import config, log
 from net.link import Net
-from sim import Capture, MasterAudio, SlaveAudio, run_pair
+from sim import Capture, ChildAudio, ParentAudio, run_pair
 
 log.enabled = False
 T0 = time.monotonic()
@@ -23,7 +23,7 @@ NAMES = {0: "OFF", 1: "STATUS", 2: "ALARM", 3: "LINKLOST", 4: "MENU", 5: "TEST",
 states = []
 orig_go = ui.Hud._go
 def go(self, state, nw, hold):
-    if self.role == "slave":
+    if self.role == "parent":
         states.append(NAMES[state])
     return orig_go(self, state, nw, hold)
 ui.Hud._go = go
@@ -32,33 +32,51 @@ ui.Hud._go = go
 def cfgfor(port):
     c = config.load("/nonexistent")
     c["port"] = port
-    c["slave"]["alarm_period_ms"] = 3000
-    c["slave"]["link_timeout_ms"] = 3000
+    c["parent"]["alarm_period_ms"] = 3000
+    c["parent"]["link_timeout_ms"] = 3000
     c["ui"].update(alert_hold_s=2, test_s=6, status_s=3)
     return c
 
 
 mc, sc = cfgfor(47470), cfgfor(47480)
-mnet, snet = Net(mc, "master"), Net(sc, "slave")
+mnet, snet = Net(mc, "child"), Net(sc, "parent")
 mnet.start(wifi=False)
 snet.start(wifi=False)
-snet.master_addr = ("127.0.0.1", 47470)
-mhud, shud = ui.Hud(mc, "master", board.i2c()), ui.Hud(sc, "slave", board.i2c())
-maudio, saudio = MasterAudio([(3.0, 4.0, -55.0, 45)], 20.0), SlaveAudio()
+snet.child_addr = ("127.0.0.1", 47470)
+mhud, shud = ui.Hud(mc, "child", board.i2c()), ui.Hud(sc, "parent", board.i2c())
+maudio, saudio = ChildAudio([(3.0, 4.0, -55.0, 45)], 20.0), ParentAudio()
 
+from helpers import bootinfo
+bootinfo._info = {"previous": bootinfo.RUN, "cause": 3, "manual": False, "crashes": 2}     # this "child unit" restarted by itself, twice in a row
 with Capture() as cap:
-    run_pair(master, slave, mc, sc, maudio, saudio, mhud, shud, mnet, snet, 30)
+    run_pair(child, parent, mc, sc, maudio, saudio, mhud, shud, mnet, snet, 30)
+bootinfo._info = None
 
 # collapse repeats, keep the order of the screens the parent saw
 seq = [s for i, s in enumerate(states) if i == 0 or s != states[i - 1]]
 check(seq == ["STATUS", "ALARM", "OFF", "MENU", "TEST", "LINKLOST", "OFF"],
       "parent screens in order: %s" % seq)
-check(cap.has("[slave] link up"), "the slave finds the master")
+check(cap.has("[parent] link up"), "the parent finds the child")
 check(cap.has("OPEN (unknown)"), "the first sound opens the gate (learning)")
-check(cap.has("live test for 6 s") and cap.has("playing LIVE TEST"), "TEST LIVE reaches the master and the audio comes back")
+check(cap.has("live test for 6 s") and cap.has("playing LIVE TEST"), "TEST LIVE reaches the child and the audio comes back")
 check(shud.test is not None and shud.test.get("result") is True and shud.test["pkts"] >= 280,
       "live test passes (%s packets of 300)" % (shud.test or {}).get("pkts"))
-check(cap.has("[slave] LINK LOST"), "link loss detected after the master stops")
-check(len(saudio.beeps) == 1 and shud.muted_until is not None, "the no-link beeps are muted by one tap (%d beep)" % len(saudio.beeps))
+check(cap.has("[parent] LINK LOST"), "link loss detected after the child stops")
+check(len(saudio.beeps) == 1 and shud.acked, "the no-link beeps stop for good after one tap (%d beep)" % len(saudio.beeps))
+shud.on_link(True)
+check(not shud.acked and not shud.muted(0), "the link coming back clears the acknowledgement")
+shud.on_link(False)
+check(shud.state == ui.LINKLOST and not shud.muted(0), "losing the link again starts a new alarm: full screen, beeps allowed")
+shud.state = ui.OFF
+shud._on_button("short", 0)
+check(shud.acked and shud.muted(0), "a press on the dark / status screen while the link is down also silences the beeps")
+check(not shud.silence_requested() or shud.acked, "silence_requested only reacts to the button")
 check(shud.peer == (76, True) and mhud.peer == (76, True), "each unit sees the other's battery %s / %s" % (shud.peer, mhud.peer))
+import version
+check(shud.peer_version == version.full() and mhud.peer_version == version.full(),
+      "each unit learns the other's software version (%s / %s)" % (shud.peer_version, mhud.peer_version))
+check(shud.version_warning() is None and mhud.version_warning() is None, "equal versions raise no warning")
+check(shud.peer_restart == 3 and cap.count("the child unit restarted by itself (crashes in a row: 2)") == 1,
+      "the parent learns that the child unit restarted by itself (code %s) and says so once" % shud.peer_restart)
+check(mhud.peer_restart is None, "the child unit gets no such information about the parent")
 finish()

@@ -3,6 +3,28 @@ BUTTON = {"fn": lambda: 1}              # BOOT button: 0 = pressed
 _F = {"hz": 240000000}
 
 
+PWRON_RESET, HARD_RESET, WDT_RESET, DEEPSLEEP_RESET, SOFT_RESET = 1, 2, 3, 4, 5
+CAUSE = {"v": PWRON_RESET}              # what reset_cause() reports (tests set it)
+RESETS = []                             # one entry per machine.reset() call
+
+
+def reset_cause():
+    return CAUSE["v"]
+
+
+def reset():
+    RESETS.append(1)
+
+
+class RTC:
+    MEM = {"b": b""}                    # RTC memory: shared by all instances, survives "resets" like the real one
+
+    def memory(self, data=None):
+        if data is None:
+            return RTC.MEM["b"]
+        RTC.MEM["b"] = bytes(data)
+
+
 def freq(hz=None):
     if hz is None:
         return _F["hz"]

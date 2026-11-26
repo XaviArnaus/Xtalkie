@@ -2,6 +2,9 @@
 config.json
 state.json
 
+# written by pc/deploy.py onto the board only (commit stamp)
+lib/_build.py
+
 # files the boards write (copied to the computer with Thonny)
 events.csv
 events.old.csv

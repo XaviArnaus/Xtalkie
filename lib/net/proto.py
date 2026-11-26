@@ -1,17 +1,17 @@
-# net/proto.py -- the tiny UDP protocol between master and slave.
+# net/proto.py -- the tiny UDP protocol between child and parent.
 # Every datagram: 2-byte magic, type, flags, 4-byte sequence number, then the payload.
 import struct
 
 MAGIC = b"BM"
 T_AUDIO = 1      # payload: 320 samples, 16-bit little endian, mono, 16 kHz (640 bytes)
 T_END = 2        # the audio stream of this event is over
-T_HB = 3         # master -> slave, once a second: payload = gate_open (1 byte), floor_db*10 (int16)
-T_HELLO = 4      # slave -> master, once a second: lets the master learn the slave's address + battery
-T_CMD = 5        # slave -> master: a command (CMD_LIVE = stream the live microphone for N seconds)
+T_HB = 3         # child -> parent, once a second: payload = gate_open (1 byte), floor_db*10 (int16)
+T_HELLO = 4      # parent -> child, once a second: lets the child learn the parent's address + battery
+T_CMD = 5        # parent -> child: a command (CMD_LIVE = stream the live microphone for N seconds)
 CMD_LIVE = 1
 CMD_SENS = 2     # set the child unit's sensitivity level 1..5 (arg)
 F_PREROLL = 1    # audio from before the alert (sent so the start of a word is not lost)
-F_TEST = 2       # audio of a live test (the slave shows the test screen, not the alert)
+F_TEST = 2       # audio of a live test (the parent shows the test screen, not the alert)
 
 _HDR = "<2sBBI"
 HDR_LEN = 8
@@ -29,10 +29,40 @@ def parse(data):
     return ptype, flags, seq, data[HDR_LEN:]
 
 
-def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0):
+# The software version rides at the END of HELLO and HB payloads: 1 length byte + ASCII text. Units without
+# this feature read only the first bytes of those payloads and ignore the rest, so old and new units mix.
+VER_MAX = 24
+
+
+def _ver_bytes(version):
+    v = str(version).encode()[:VER_MAX]
+    return bytes([len(v)]) + v
+
+
+def _ver_parse(payload, offset):
+    """The version text after `offset` bytes, or None (old unit, or damaged)."""
+    if len(payload) <= offset:
+        return None
+    n = payload[offset]
+    if n == 0 or n > VER_MAX or len(payload) < offset + 1 + n:
+        return None
+    try:
+        return bytes(payload[offset + 1:offset + 1 + n]).decode()
+    except Exception:
+        return None
+
+
+def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0, version=None, restart=None):
+    """restart (0..255) follows the version field: 0 = started by a person, n > 0 = restarted by itself (see
+    helpers/bootinfo.restart_code). Without a version an empty version field keeps the layout."""
     f = 0 if floor_db is None else int(floor_db * 10)
     b = 255 if batt is None else int(batt)
-    return pack(T_HB, seq, struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens))
+    body = struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens)
+    if version or restart is not None:
+        body += _ver_bytes(version or "")
+    if restart is not None:
+        body += bytes([min(255, max(0, int(restart)))])
+    return pack(T_HB, seq, body)
 
 
 def parse_hb(payload):
@@ -52,9 +82,32 @@ def parse_hb(payload):
     return bool(g), f / 10, batt, charging, sens
 
 
-def pack_hello(seq, batt=None, charging=False):
+def parse_hb_version(payload):
+    """Software version text of the child, or None."""
+    return _ver_parse(payload, 6)
+
+
+def parse_hb_restart(payload):
+    """The child's restart code (0 = started by a person, n > 0 = restarted by itself), or None (older unit)."""
+    if len(payload) <= 6:
+        return None
+    n = payload[6]
+    if n > VER_MAX or len(payload) <= 7 + n:
+        return None
+    return payload[7 + n]
+
+
+def pack_hello(seq, batt=None, charging=False, version=None):
     b = 255 if batt is None else int(batt)
-    return pack(T_HELLO, seq, struct.pack("<BB", b, 1 if charging else 0))
+    body = struct.pack("<BB", b, 1 if charging else 0)
+    if version:
+        body += _ver_bytes(version)
+    return pack(T_HELLO, seq, body)
+
+
+def parse_hello_version(payload):
+    """Software version text of the parent, or None."""
+    return _ver_parse(payload, 2)
 
 
 def parse_hello(payload):

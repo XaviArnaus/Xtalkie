@@ -4,40 +4,33 @@
 # Screen policy (the panel is dark unless one of these is active):
 #   STATUS    BOOT tap: link icon + battery of this unit and of the other one, for status_s seconds
 #   ALARM     (parent unit) voice / alert audio is playing: full-screen flashing bell, until dismissed
-#   LINKLOST  (parent unit) no signal from the child unit: flashing cross; BOOT mutes the beeps
+#   LINKLOST  (parent unit) no signal from the child unit: flashing cross; BOOT acknowledges: the beeps stop until the link changes
 #   MENU      BOOT long press (parent unit): TEST LIVE / TEST ALARM / EXIT; tap = next, hold = select
 #   TEST      live test: the child unit streams its microphone for test_s seconds, level bar + packet count
 import time
 
 import board
+import version
 from drivers.axp2101 import AXP2101
+from ui import menu
 
-OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW = 0, 1, 2, 3, 4, 5, 6
-MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "EXIT")
-LONG_MS = 1200
+OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT, ROLE, NOTE = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+MUTE_TAPS = 3                                     # this many quick BOOT taps on the parent unit switch its sound off / on
+NOTE_MS = 3000
+MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "ROLE", "EXIT")
+LONG_MS = menu.LONG_MS
 BATT_REFRESH_MS = 30000
-
-
-def volume_actions(audio):
-    """Menu actions that read and step the volume level (1..5) and remember it across reboots."""
-    from helpers import config
-
-    def step():
-        n = audio.level % 5 + 1
-        audio.set_level(n)
-        config.state_save("volume_level", n)
-        audio.beep(n=1)                      # a beep at the new level
-        return n
-
-    return {"get_level": lambda: audio.level, "volume_step": step}
+volume_actions = menu.volume_actions          # moved to ui/menu.py (shared with the play mode); kept importable from here
 
 
 class Hud:
-    def __init__(self, cfg, role, i2c):
+    def __init__(self, cfg, role, i2c, shared=None):
+        """shared = (display, gfx) already opened by main.py (either may be None: screen off). Without it the
+        HUD opens the panel itself."""
         u = cfg["ui"]
         self.u = u
         self.role = role
-        self.is_parent = role != "master"            # loopback behaves like the parent unit
+        self.is_parent = role != "child"            # loopback behaves like the parent unit
         self.bat = AXP2101(i2c)
         self._binfo = None
         self._btime = 0
@@ -50,30 +43,48 @@ class Hud:
         self._phase_t = 0
         self.link_ok = False
         self.peer = (None, False)                    # battery of the other unit
+        self.version = version.full()
+        self.peer_version = None                     # software version of the other unit, once known
+        self.peer_restart = None                     # the child unit's restart code (parent unit only): n > 0 = it restarted by itself
+        self.boot_note = None                        # how THIS unit started (shown on the child unit's status screen)
         self.alert_active = False
         self._dismissed = False
         self._hold_until = 0
-        self.muted_until = None
+        self.sound_off = False                       # parent unit: voice and beeps switched off by 3 quick taps (remembered)
+        self._tap_n = 0
+        self._tap_t = 0
+        self._note = None                            # (title, detail, colour) of the NOTE screen
+        if self.is_parent:
+            try:
+                from helpers import config as _cfg
+                self.sound_off = bool(_cfg.state_load().get("sound_off", False))
+            except Exception:
+                pass
+        self.acked = False                           # a person pressed BOOT while the link is down: no more beeps until the link changes
         self.idx = 0
+        self.switch = None                           # the role switch in progress (ui/menu.py RoleSwitch)
         self.test = None
         self.actions = {}
         self._press_t = None
         self._test_draw_t = 0
         from machine import Pin
         self.btn = Pin(board.BOOT, Pin.IN, Pin.PULL_UP)
-        if u["enabled"]:
-            try:
-                from board.display import Display
-                from ui.gfx import Gfx
-                self.display = Display(i2c, manual=u.get("manual_refresh", False))
-                self.display.init()
-                self.gfx = Gfx(self.display.panel, board.LCD_W, board.LCD_H)
-                print("[ui] screen ready")
-            except Exception as e:
-                print("[ui] screen disabled:", e)
-                self.display = None
+        if shared is not None:
+            self.display, self.gfx = shared
+        else:
+            from ui.boot import open_screen
+            self.display, self.gfx = open_screen(cfg, i2c)
 
     # ------------------------------------------------------------ helpers
+    def hold_boot(self, ms):
+        """The start-up screen is on the panel (drawn by ui/boot.py): leave it there for ms, then show the status
+        screen (parent unit) or go dark (child unit). A button press or an alarm ends it earlier. Does nothing
+        when nothing was drawn (child unit after an automatic restart)."""
+        if self.display is None or not self.display.on:
+            return
+        self.state = BOOT
+        self._until = time.ticks_add(time.ticks_ms(), ms)
+
     def set_actions(self, **kw):
         self.actions.update(kw)
 
@@ -97,7 +108,55 @@ class Hud:
             return None, False
 
     def muted(self, now):
-        return self.muted_until is not None and time.ticks_diff(self.muted_until, now) > 0
+        """No beeps for the no-link alarm: it was acknowledged (until the link changes) or the sound is switched off."""
+        return self.acked or self.sound_off
+
+    def sound_muted(self):
+        """The parent unit's sound (voice and beeps) is switched off by the person (3 quick taps)."""
+        return self.sound_off
+
+    def alert_dismissed(self):
+        """A person pressed BOOT on the bell screen of the alert that is still playing: stop its voice."""
+        return self.alert_active and self._dismissed
+
+    def _toggle_sound(self, now):
+        self.sound_off = not self.sound_off
+        try:
+            from helpers import config as _cfg
+            _cfg.state_save("sound_off", self.sound_off)
+        except Exception:
+            pass
+        if self.sound_off:
+            self._note = ("SOUND OFF", "3 TAPS: SOUND ON", self._amber())
+        else:
+            self._note = ("SOUND ON", "", self._green())
+        print("[ui] sound %s" % ("OFF (muted by hand)" if self.sound_off else "ON"))
+        self._go(NOTE, now, NOTE_MS)
+        if not self.sound_off:
+            fn = self.actions.get("unmute_beep")
+            if fn:
+                fn()                                 # one beep: the speaker works again
+
+    @staticmethod
+    def _amber():
+        from ui import screens as S
+        return S.AMBER
+
+    @staticmethod
+    def _green():
+        from ui import screens as S
+        return S.GREEN
+
+    def silence_requested(self):
+        """Called by the parent's beep loop between tones: BOOT held down while the link is down = acknowledge now,
+        so a press made during the (blocking) beeps is not lost. True = stop beeping."""
+        try:
+            if self.is_parent and not self.link_ok and self.btn.value() == 0:
+                self.acked = True
+                return True
+        except Exception:
+            pass
+        return False
 
     def _expired(self, now, t):
         return time.ticks_diff(now, t) >= 0
@@ -110,8 +169,8 @@ class Hud:
             was = self.link_ok
             self.link_ok = up
             now = time.ticks_ms()
+            self.acked = False                       # every change of the link starts a new alarm cycle
             if up:
-                self.muted_until = None
                 if self.state in (LINKLOST, OFF) and self.is_parent:
                     self._go(STATUS, now, self.u["status_s"] * 1000)
             elif self.is_parent and was:
@@ -121,6 +180,35 @@ class Hud:
 
     def on_peer_status(self, pct, charging):
         self.peer = (pct, charging)
+
+    def _redraw_status_if_shown(self):
+        try:
+            if self.state == STATUS and self.display is not None:
+                self._draw(time.ticks_ms())
+        except Exception as e:
+            self._fail(e)
+
+    def on_peer_version(self, v):
+        """Software version of the other unit (None = it does not report one, i.e. older code)."""
+        changed = v != self.peer_version
+        self.peer_version = v
+        if changed:
+            self._redraw_status_if_shown()          # the status screen may already be up (it opens when the link does)
+
+    def on_peer_restart(self, code):
+        """The child unit's restart code from its heartbeat (None = older unit that does not report one)."""
+        changed = code != self.peer_restart
+        self.peer_restart = code
+        if changed:
+            self._redraw_status_if_shown()
+
+    def set_boot_note(self, text):
+        self.boot_note = text
+
+    def version_warning(self):
+        """The other unit's version when it differs from ours (shown in amber on the status screen), else None."""
+        v = self.peer_version
+        return v if (v is not None and v != self.version) else None
 
     def on_alert_start(self):
         try:
@@ -177,7 +265,15 @@ class Hud:
             title = "PARENT UNIT" if self.is_parent else "CHILD ROOM"
             other = "CHILD" if self.is_parent else "PARENT"
             hint = "HOLD BUTTON: MENU" if self.is_parent else ""
-            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint), u["brightness"])
+            ver, warn = self.version, self.version_warning()
+            restart = self.peer_restart if self.is_parent else None
+            note = None if self.is_parent else self.boot_note
+            off = self.sound_off and self.is_parent
+            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint, ver, warn, restart, note, off),
+                          u["brightness"])
+        elif s == NOTE:
+            t, d, c = self._note or ("", "", None)
+            self._present(lambda g: S.draw_message(g, t, d, c), u["brightness"])
         elif s in (ALARM, PREVIEW):
             ph = self._phase
             self._present(lambda g: S.draw_alarm(g, ph), u["alarm_brightness"])
@@ -200,6 +296,19 @@ class Hud:
             t = self.test or {"deadline": now, "pkts": 0, "level": -99.0, "result": None}
             rem = max(0, time.ticks_diff(t["deadline"], now) // 1000)
             self._present(lambda g: S.draw_test(g, rem, t["pkts"], t["level"], t["result"]), u["brightness"])
+        elif s == ROLE:
+            sw = self.switch
+            if sw.state == "pick":
+                labels, idx = sw.labels(), sw.idx
+                self._present(lambda g: S.draw_menu(g, labels, idx, "ROLE"), u["brightness"])
+            elif sw.state == "confirm":
+                target = sw.target
+                self._present(lambda g: S.draw_confirm(g, target), u["brightness"])
+            elif sw.state == "done":
+                self._present(lambda g: S.draw_message(g, "RESTARTING", "", S.GREEN), u["brightness"])
+            else:
+                err = sw.error
+                self._present(lambda g: S.draw_message(g, "NOT SAVED", err, S.AMBER), u["brightness"])
 
     def _button(self, now):
         down = self.btn.value() == 0
@@ -217,7 +326,21 @@ class Hud:
     def _on_button(self, ev, now):
         s = self.state
         u = self.u
-        if s == OFF:
+        if self.is_parent and not self.link_ok:
+            self.acked = True                        # any press while the link is down silences the beeps (the screen does what it always did)
+        if self.is_parent and s not in (MENU, TEST, ROLE) and ev == "short":
+            if self._tap_n and time.ticks_diff(now, self._tap_t) <= u["mute_gap_ms"]:
+                self._tap_n += 1
+            else:
+                self._tap_n = 1
+            self._tap_t = now
+            if self._tap_n >= MUTE_TAPS:             # 3 quick taps: sound off / on (voice and beeps)
+                self._tap_n = 0
+                self._toggle_sound(now)
+                return
+        else:
+            self._tap_n = 0
+        if s == OFF or s == BOOT or s == NOTE:
             if ev == "long" and self.is_parent:
                 self.idx = 0
                 self._go(MENU, now, 20000)
@@ -230,12 +353,12 @@ class Hud:
             elif ev == "long":
                 self._go(OFF, now, None)
             else:
-                self._go(STATUS, now, u["status_s"] * 1000)
+                self._until = time.ticks_add(now, u["status_s"] * 1000)    # restart the timer without redrawing: a draw takes
+                                                                           # ~200 ms during which BOOT is not read (missed taps)
         elif s == ALARM:
             self._dismissed = True
             self._go(OFF, now, None)
         elif s == LINKLOST:
-            self.muted_until = time.ticks_add(now, u["mute_s"] * 1000)
             self._go(OFF, now, None)
         elif s == MENU:
             if ev == "short":
@@ -248,6 +371,23 @@ class Hud:
             self._go(MENU, now, 20000)
         elif s == PREVIEW:
             self._go(OFF, now, None)
+        elif s == ROLE:
+            self._role_result(self.switch.tap() if ev == "short" else self.switch.hold(), now)
+
+    def _role_result(self, res, now):
+        """What the role switch asked for: redraw, back to the menu, or restart (config.json is already written)."""
+        sw = self.switch
+        if res == "cancel":
+            self.switch = None
+            self._go(MENU, now, 20000)
+        elif res == "reset":
+            from helpers import log
+            log.write("ui", "role switch %s -> %s" % (self.role, sw.target))
+            print("[ui] role %s -> %s: restarting" % (self.role, sw.target))
+            self._go(ROLE, now, None)               # shows RESTARTING
+            menu.restart()
+        else:
+            self._go(ROLE, now, 4000 if sw.state == "failed" else 20000)
 
     def _select(self, now):
         item = MENU_ITEMS[self.idx]
@@ -272,6 +412,9 @@ class Hud:
             fn = self.actions.get("alarm_preview")
             if fn:
                 fn()
+        elif item == "ROLE":
+            self.switch = menu.RoleSwitch(self.role)
+            self._go(ROLE, now, 20000)
         else:
             self._go(OFF, now, None)
 
@@ -281,14 +424,20 @@ class Hud:
             ev = self._button(now)
             if ev and (self.display is not None):
                 self._on_button(ev, now)
-            elif ev and self.state == LINKLOST:
-                self.muted_until = time.ticks_add(now, self.u["mute_s"] * 1000)
+            elif ev and self.is_parent and not self.link_ok:
+                self.acked = True
             if self.display is None:
                 return
             s = self.state
             if s == OFF:
                 return
-            if s == STATUS:
+            if s == BOOT:
+                if self._expired(now, self._until):
+                    if self.is_parent:
+                        self._go(STATUS, now, self.u["status_s"] * 1000)
+                    else:
+                        self._go(OFF, now, None)
+            elif s == STATUS:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
                 elif time.ticks_diff(now, self._btime) > BATT_REFRESH_MS - 1000:
@@ -303,9 +452,14 @@ class Hud:
             elif s == MENU:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
-            elif s == PREVIEW:
+            elif s == PREVIEW or s == NOTE:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
+            elif s == ROLE:
+                if self._expired(now, self._until):
+                    failed = self.switch is not None and self.switch.state == "failed"
+                    self.switch = None
+                    self._go(MENU if failed else OFF, now, 20000 if failed else None)
             elif s == TEST:
                 t = self.test
                 if t is None:
@@ -339,10 +493,31 @@ class NullHud:
     def muted(self, now):
         return False
 
+    def silence_requested(self):
+        return False
+
+    def sound_muted(self):
+        return False
+
+    def alert_dismissed(self):
+        return False
+
     def on_link(self, up):
         pass
 
     def on_peer_status(self, pct, charging):
+        pass
+
+    def on_peer_version(self, v):
+        pass
+
+    def on_peer_restart(self, code):
+        pass
+
+    def set_boot_note(self, text):
+        pass
+
+    def hold_boot(self, ms):
         pass
 
     def on_alert_start(self):
