@@ -14,7 +14,9 @@ import version
 from drivers.axp2101 import AXP2101
 from ui import menu
 
-OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT, ROLE = 0, 1, 2, 3, 4, 5, 6, 7, 8
+OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT, ROLE, NOTE = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+MUTE_TAPS = 3                                     # this many quick BOOT taps on the parent unit switch its sound off / on
+NOTE_MS = 3000
 MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "ROLE", "EXIT")
 LONG_MS = menu.LONG_MS
 BATT_REFRESH_MS = 30000
@@ -48,6 +50,16 @@ class Hud:
         self.alert_active = False
         self._dismissed = False
         self._hold_until = 0
+        self.sound_off = False                       # parent unit: voice and beeps switched off by 3 quick taps (remembered)
+        self._tap_n = 0
+        self._tap_t = 0
+        self._note = None                            # (title, detail, colour) of the NOTE screen
+        if self.is_parent:
+            try:
+                from helpers import config as _cfg
+                self.sound_off = bool(_cfg.state_load().get("sound_off", False))
+            except Exception:
+                pass
         self.acked = False                           # a person pressed BOOT while the link is down: no more beeps until the link changes
         self.idx = 0
         self.switch = None                           # the role switch in progress (ui/menu.py RoleSwitch)
@@ -96,8 +108,44 @@ class Hud:
             return None, False
 
     def muted(self, now):
-        """True once the no-link alarm was acknowledged; it ends when the link comes back (or goes down again)."""
-        return self.acked
+        """No beeps for the no-link alarm: it was acknowledged (until the link changes) or the sound is switched off."""
+        return self.acked or self.sound_off
+
+    def sound_muted(self):
+        """The parent unit's sound (voice and beeps) is switched off by the person (3 quick taps)."""
+        return self.sound_off
+
+    def alert_dismissed(self):
+        """A person pressed BOOT on the bell screen of the alert that is still playing: stop its voice."""
+        return self.alert_active and self._dismissed
+
+    def _toggle_sound(self, now):
+        self.sound_off = not self.sound_off
+        try:
+            from helpers import config as _cfg
+            _cfg.state_save("sound_off", self.sound_off)
+        except Exception:
+            pass
+        if self.sound_off:
+            self._note = ("SOUND OFF", "3 TAPS: SOUND ON", self._amber())
+        else:
+            self._note = ("SOUND ON", "", self._green())
+        print("[ui] sound %s" % ("OFF (muted by hand)" if self.sound_off else "ON"))
+        self._go(NOTE, now, NOTE_MS)
+        if not self.sound_off:
+            fn = self.actions.get("unmute_beep")
+            if fn:
+                fn()                                 # one beep: the speaker works again
+
+    @staticmethod
+    def _amber():
+        from ui import screens as S
+        return S.AMBER
+
+    @staticmethod
+    def _green():
+        from ui import screens as S
+        return S.GREEN
 
     def silence_requested(self):
         """Called by the parent's beep loop between tones: BOOT held down while the link is down = acknowledge now,
@@ -220,8 +268,12 @@ class Hud:
             ver, warn = self.version, self.version_warning()
             restart = self.peer_restart if self.is_parent else None
             note = None if self.is_parent else self.boot_note
-            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint, ver, warn, restart, note),
+            off = self.sound_off and self.is_parent
+            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint, ver, warn, restart, note, off),
                           u["brightness"])
+        elif s == NOTE:
+            t, d, c = self._note or ("", "", None)
+            self._present(lambda g: S.draw_message(g, t, d, c), u["brightness"])
         elif s in (ALARM, PREVIEW):
             ph = self._phase
             self._present(lambda g: S.draw_alarm(g, ph), u["alarm_brightness"])
@@ -276,7 +328,19 @@ class Hud:
         u = self.u
         if self.is_parent and not self.link_ok:
             self.acked = True                        # any press while the link is down silences the beeps (the screen does what it always did)
-        if s == OFF or s == BOOT:
+        if self.is_parent and s not in (MENU, TEST, ROLE) and ev == "short":
+            if self._tap_n and time.ticks_diff(now, self._tap_t) <= u["mute_gap_ms"]:
+                self._tap_n += 1
+            else:
+                self._tap_n = 1
+            self._tap_t = now
+            if self._tap_n >= MUTE_TAPS:             # 3 quick taps: sound off / on (voice and beeps)
+                self._tap_n = 0
+                self._toggle_sound(now)
+                return
+        else:
+            self._tap_n = 0
+        if s == OFF or s == BOOT or s == NOTE:
             if ev == "long" and self.is_parent:
                 self.idx = 0
                 self._go(MENU, now, 20000)
@@ -387,7 +451,7 @@ class Hud:
             elif s == MENU:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
-            elif s == PREVIEW:
+            elif s == PREVIEW or s == NOTE:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
             elif s == ROLE:
@@ -429,6 +493,12 @@ class NullHud:
         return False
 
     def silence_requested(self):
+        return False
+
+    def sound_muted(self):
+        return False
+
+    def alert_dismissed(self):
         return False
 
     def on_link(self, up):

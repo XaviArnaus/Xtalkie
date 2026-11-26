@@ -32,6 +32,8 @@ def run(cfg, audio, net, hud=None):
     queue = []
     end_flag = False
     playing = False
+    speaker = False                  # playing with the speaker (False: sound switched off, the bell only)
+    drop_stream = False              # the alert was dismissed: ignore the rest of that stream, until the next event
     expected = None
     lost = 0
     underruns = 0
@@ -65,7 +67,8 @@ def run(cfg, audio, net, hud=None):
         net.send(proto.pack_cmd(cseq, proto.CMD_SENS, sens_known), master)
         return sens_known
 
-    hud.set_actions(test_live=_act_test, alarm_preview=lambda: audio.beep(),
+    hud.set_actions(test_live=_act_test, alarm_preview=lambda: None if hud.sound_muted() else audio.beep(),
+                    unmute_beep=lambda: audio.beep(n=1),
                     sens_step=_sens_step, get_sens=lambda: sens_known, **volume_actions(audio))
 
     audio.close()
@@ -109,6 +112,8 @@ def run(cfg, audio, net, hud=None):
                             sens_known = master_state[4]
                 elif ptype == proto.T_AUDIO:
                     last_audio_rx = now
+                    if drop_stream:
+                        continue                         # the rest of a dismissed alert: not played
                     if flags & proto.F_TEST:
                         test_seen = True
                     if expected is not None:
@@ -127,6 +132,9 @@ def run(cfg, audio, net, hud=None):
                         del queue[:len(queue) - QUEUE_MAX]
                 elif ptype == proto.T_END:
                     last_audio_rx = now
+                    if drop_stream:
+                        drop_stream = False              # the dismissed alert is over: the next one plays again
+                        continue
                     expected = (seq + 1) & 0xFFFFFFFF
                     end_flag = True
 
@@ -139,10 +147,12 @@ def run(cfg, audio, net, hud=None):
 
             # ---- playback ----
             if not playing and queue and (len(queue) >= jitter or end_flag):
-                audio.open_tx()
-                audio.write_silence()
-                audio.write_silence()
-                audio.set_pa(True)
+                speaker = not hud.sound_muted()
+                if speaker:
+                    audio.open_tx()
+                    audio.write_silence()
+                    audio.write_silence()
+                    audio.set_pa(True)
                 playing = True
                 last_audio_rx = now
                 stream_test = test_seen
@@ -152,17 +162,42 @@ def run(cfg, audio, net, hud=None):
                 if verbose:
                     print("[slave] playing%s (%d frames buffered)" % (" LIVE TEST" if stream_test else "", len(queue)))
             if playing:
+                if not stream_test and hud.alert_dismissed():
+                    # BOOT on the bell screen: the voice stops now and the rest of this stream is dropped
+                    if speaker:
+                        audio.set_pa(False)
+                        audio.close()
+                    speaker = False
+                    playing = False
+                    drop_stream = not end_flag           # the child is still talking: ignore it until its END
+                    del queue[:]
+                    end_flag = False
+                    expected = None
+                    hud.on_alert_end()
+                    log.write("slave", "alert dismissed: voice stopped")
+                    if verbose:
+                        print("[slave] alert dismissed: voice stopped")
+                    continue
+                if speaker and hud.sound_muted():        # switched off while it plays: the bell stays, the voice goes
+                    audio.set_pa(False)
+                    audio.close()
+                    speaker = False
                 if queue:
                     frame_payload = queue.pop(0)
                     if stream_test:
                         hud.on_test_audio(proto.level_db(frame_payload))
-                    audio.write_payload(frame_payload, gain)
+                    if speaker:
+                        audio.write_payload(frame_payload, gain)
+                    else:
+                        time.sleep_ms(20)                # no speaker: keep the real-time pace
                     played += 1
                 elif end_flag or time.ticks_diff(now, last_audio_rx) > UNDERRUN_STOP_MS:
-                    for _ in range(3):
-                        audio.write_silence()
-                    audio.set_pa(False)
-                    audio.close()
+                    if speaker:
+                        for _ in range(3):
+                            audio.write_silence()
+                        audio.set_pa(False)
+                        audio.close()
+                    speaker = False
                     playing = False
                     end_flag = False
                     expected = None
@@ -176,11 +211,16 @@ def run(cfg, audio, net, hud=None):
                         print("[slave] stream finished (played=%d lost=%d underruns=%d)" % (
                             played, lost, underruns))
                 else:
-                    audio.write_silence()               # waiting for the next packet
+                    if speaker:
+                        audio.write_silence()           # waiting for the next packet
+                    else:
+                        time.sleep_ms(5)
                     underruns += 1
                 continue
 
             # ---- idle: link supervision ----
+            if drop_stream and time.ticks_diff(now, last_audio_rx) > UNDERRUN_STOP_MS:
+                drop_stream = False                      # the dismissed stream went quiet without an END
             if link_up and last_hb is not None and time.ticks_diff(now, last_hb) > link_timeout:
                 link_up = False
                 print("[slave] LINK LOST")

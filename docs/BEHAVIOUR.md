@@ -20,7 +20,8 @@ commit. (Touch input will replace most of this: see the last section.)
 | Child unit, status | restart the 10 s timer | dark |
 | Parent unit, dark | status screen | **menu** |
 | Parent unit, status | restart the 10 s timer | **menu** |
-| Parent unit, bell (alert) | dismiss (dark; the sound goes on) | dismiss |
+| Parent unit, bell (alert) | dismiss (dark) **and stop the voice** | same |
+| Parent unit, any screen except menus | **3 quick taps**: sound off / on | (resets the count) |
 | Parent unit, no link | acknowledge: beeps stop until the link changes, dark | same |
 | Menu | next item | select the item |
 | TEST LIVE running | back to the menu | back to the menu |
@@ -74,7 +75,8 @@ The loopback role behaves like the parent unit on one board.
 | Link returns | status screen 10 s | beeps stop |
 | No alarm before the first contact | (power-up with the child unit off: no alarm until it was heard once) | |
 
-- Bell: tap or hold = dismiss the screen only. The audio keeps playing to the end.
+- Bell: tap or hold = dismiss the screen **and stop the voice** of this alert (the rest of the stream is dropped; the next alert plays again).
+- **Sound off / on**: 3 quick taps (each within 0.8 s of the previous one) on the parent unit, on any screen except the menus. OFF = no voice and no beeps (no-link beeps and TEST ALARM too); the bell still shows. A screen says SOUND OFF / SOUND ON for 3 s (ON also gives one beep), and the status screen shows an amber `SOUND OFF` line on top while it is off. **It is remembered across restarts** until you switch it on again the same way. Taps 1 and 2 still do their normal job (wake the status screen, dismiss).
 - No link: tap or hold = **acknowledge**: the beeps stop and the screen goes dark. Nothing beeps again until the link has come back and been lost once more (then: full-screen alarm and beeps again). A tap on the dark or status screen while the link is down also silences the beeps. A press during the beeps stops them at once.
 - A sound longer than 45 s is cut by the child unit and paused 8 s (stops an acoustic feedback loop).
 
@@ -160,6 +162,7 @@ Nothing is ever drawn while a clip is being recorded. A press during a recording
 | Bell after the sound ended | 10 s |
 | Link considered lost | 3 s without a packet; beeps every 10 s |
 | Stream cut / pause | after 45 s / 8 s |
+| Quick taps for sound off / on | 3, at most 0.8 s apart |
 | Start-up screen "ready" | 4 s; chooser window 3 s; chooser idle 2 min |
 | Play screen off | 2 min |
 | A run that counts as stable (ends a crash loop) | 1 min |

@@ -3,6 +3,16 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.6.3
+- Parent unit: BOOT on the bell screen now also STOPS THE VOICE of that alert (before, only the screen went dark and
+  the audio played to the end). The rest of that stream is dropped; the next alert plays normally.
+- Parent unit: 3 quick BOOT taps (each within `ui.mute_gap_ms` = 800 ms of the one before) switch the sound OFF or ON.
+  OFF = no voice and no beeps (no-link beeps, test alarm). The bell screen still shows. The state is remembered in
+  `state.json` (`sound_off`), also after a restart. A short SOUND OFF / SOUND ON screen confirms it, ON gives one
+  beep, and the status screen shows an amber `SOUND OFF` line at the top for as long as it is off. Not active in the
+  menu screens, and not on the child unit.
+- UNVERIFIED on the boards: the confirmation screen and the position of the SOUND OFF line; whether 800 ms feels right.
+
 ## 0.6.2
 - No-link alarm (found in the first hardware test): a BOOT press now ACKNOWLEDGES it until the link changes. Before, it
   muted the beeps for 5 minutes and they came back in a loop; a press on the status screen did nothing. Now:

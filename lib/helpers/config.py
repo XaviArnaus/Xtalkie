@@ -33,7 +33,8 @@ DEFAULTS = {
         "test_s": 10,            # length of the live test
         "boot_screen": "auto",   # start-up screen: auto (the child unit stays dark after an automatic restart) | always | never
         "boot_beep": True,       # one short beep when a person switches the unit on (never after an automatic restart)
-        "ready_s": 4,            # how long the "ready" start-up screen stays
+        "mute_gap_ms": 800,      # parent unit: 3 BOOT taps, each within this time of the one before, switch the sound off / on
+        "ready_s": 4,           # how long the "ready" start-up screen stays
         "chooser_window_s": 3,   # the start-up screen waits this long for BOOT to be held (0 = no role chooser at start-up)
         "chooser_hold_s": 2,     # ... held this long
         "chooser_timeout_s": 120,  # the chooser starts the unit with its current role if nobody answers for this long

@@ -2,12 +2,14 @@
 from ui.gfx import BLACK, WHITE, RED, GREEN, AMBER, ORANGE, GRAY, DGRAY
 
 
-def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=None, restart=None, note=None):
+def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=None, restart=None, note=None, sound_off=False):
     """ver = this unit's software version (small, under the title). Amber lines under the link text:
     restart = the OTHER unit restarted by itself (None = no, 0 = no, n > 0 = yes, n - 1 crashes in a row);
     warn = the OTHER unit's version when it differs from ours. note = how THIS unit started, in gray at the
     bottom (only where there is no hint line, i.e. on the child unit)."""
     g.clear(BLACK)
+    if sound_off:
+        g.text_c("SOUND OFF", 2, 2, AMBER)      # parent unit muted by hand: stays on the status screen as a reminder
     g.text_c(title, 18, 4, GRAY)
     if ver:
         g.text_c(ver, 50, 2, GRAY)

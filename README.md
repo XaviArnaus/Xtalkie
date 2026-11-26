@@ -129,7 +129,8 @@ The BOOT button, and the panel is dark unless something is shown.
   YES (tap = NO), and the unit writes `config.json` (only the `role` key; the old file stays as `config.json.bak`) and
   restarts in the new role. The child unit has no menu on purpose: a toddler cannot switch its role. To change the
   child unit's role, edit `config.json` or run `pc/deploy.py`.
-- **alert** (parent): the screen wakes with a bell while the audio plays; a tap dismisses it.
+- **alert** (parent): the screen wakes with a bell while the audio plays; a tap dismisses it and stops the voice.
+- **sound off / on** (parent): 3 quick taps. No voice and no beeps until switched on again (remembered across restarts); the status screen shows `SOUND OFF`.
 - **no link** (parent): cross + beeps; a tap acknowledges: the beeps stop until the link has returned and been lost again.
 - Battery bolt = external power. `USB` = no battery detected.
 - A stream longer than 45 s is cut for 8 s (an acoustic feedback loop between the two units would otherwise howl).

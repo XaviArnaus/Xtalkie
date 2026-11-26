@@ -63,6 +63,9 @@ Hold BOOT on the PARENT (about 1.5 s), let go.
 ## 5. Alerts and link loss
 
 - [ ] Clap or call near the CHILD: PARENT shows the bell and plays the audio. A tap dismisses the bell, the sound continues.
+- [ ] While the bell shows and the voice plays, tap BOOT: the screen goes dark and the voice stops at once; the next alert plays normally.
+- [ ] 3 quick taps (about 2 per second): SOUND OFF screen for 3 s. Make an alert: the bell shows, no voice. Switch the CHILD off: NO LINK, no beeps.
+  Tap once: status screen with amber SOUND OFF on top (check the layout). Power-cycle the PARENT: still SOUND OFF. 3 quick taps: SOUND ON and one beep.
 - [ ] Snoring-like noise / room noise: no alert (as in `live-test-1`).
 - [ ] Switch the CHILD off: after about 3 s the PARENT shows the red cross and beeps 3 times every 10 s. Tap: screen dark and the beeps stop for good (also if you tap during the beeps, or later on the status screen). Switch the CHILD on, then off again: the full-screen alarm and the beeps start again.
 - [ ] Switch the CHILD on again: the PARENT shows the status screen, beeps stop.
