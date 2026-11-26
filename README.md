@@ -90,6 +90,17 @@ both raw values are printed and logged at every boot (`[boot] last run ended: ..
 board behaves differently from this on the real hardware, `"ui": {"boot_screen": "always"}` (or `"never"`) in its
 `config.json` forces the screen on (or off) and `"boot_beep": false` silences the beep.
 
+**Role chooser.** While the start-up screen says `HOLD BUTTON 2 S: CHOOSE ROLE` (about 3 s, right after READY), hold the
+BOOT button for 2 s: the list MASTER / SLAVE / PLAY / BACK appears (tap = next, hold = select, then hold = yes, tap = no).
+It works before any role code runs, so a role that crashes at start can still be switched. Do not hold BOOT while
+the board is being reset: that enters the chip's download mode. If the parent unit crashes 3 times in a row (each run
+shorter than a minute) the chooser appears by itself instead of starting the same role once more; it starts the unit
+with its current role if nobody answers for 2 minutes. **The child unit never lights its screen or makes a sound on
+its own, not even in a crash loop**: the parent unit's "no link" alarm is the signal, and a person power-cycles the
+child unit (which then shows the start-up screen and the chooser). The child unit does not wait for the button after an
+automatic restart. Settings: `ui.chooser_window_s`, `chooser_hold_s`,
+`chooser_timeout_s`, `crash_limit`.
+
 ### Software version
 
 Every board knows its version (`lib/version.py`): printed at boot, in the log (`boot,...,ver=`), and in small text under
@@ -104,7 +115,10 @@ Role `idle` starts nothing: a clean board for the tools. Role `loopback` tests e
 ## Using it
 
 The BOOT button, and the panel is dark unless something is shown.
-- **tap**: status (link icon, battery of this unit and of the other unit), 10 s.
+- **tap**: status (link icon, battery of this unit and of the other unit), 10 s. On the child unit the bottom line says
+  how it started (`STARTED BY A PERSON`, `RESTART: CRASH X2`, ...). On the parent unit an amber `CHILD RESTARTED` line
+  means the child unit restarted by itself (it stays until a person restarts it); an amber `CHILD HAS <version>` line
+  means the two units run different software.
 - **hold 1 s** (parent unit): menu. Tap = next item, hold = select.
   TEST LIVE (stream the child's microphone for 10 s: AUDIO OK / NO AUDIO), TEST ALARM, VOLUME n (1..5, remembered),
   MIC n (1..5 = the child unit's sensitivity, set remotely and remembered there), ROLE, EXIT.
@@ -156,7 +170,7 @@ disp_off/disp_on on this firmware); `battery_check.py` raw power-chip readings; 
 `audio` {mic_gain, volume, playback_gain, agc, agc_max_gain, volume_level}; `gate` {any `dsp/gate.py` setting}; `play` {trig_db, end_db, hang_ms, pre_ms, tail_ms, min_ms, max_s, speed, save, dir, max_total_kb, min_free_kb, idle_off_s};
 `master` {sens_level, max_open_s, cooldown_s, preroll_lead_ms}; `slave` {jitter_frames, link_timeout_ms, ...};
 `ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s, mute_s,
-boot_screen, boot_beep, ready_s}.
+boot_screen, boot_beep, ready_s, chooser_window_s, chooser_hold_s, chooser_timeout_s, crash_limit}.
 Settings changed from the menu live in `state.json`, not in config.json.
 
 ## Tests

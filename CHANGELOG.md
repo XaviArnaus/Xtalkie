@@ -3,6 +3,36 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.6.0
+- The child unit stays dark and silent after ANY automatic restart or crash loop (no chooser, no blink, no beep).
+  To avoid "looks bricked":
+  - a BOOT tap on the child unit's status screen now shows how this run started, at the bottom: `STARTED BY A PERSON`,
+    `RESTART: CRASH X2`, `RESTART: NO CLEAN STOP`, `RESTART: OTHER`;
+  - the child unit reports "I restarted by myself" (and the crashes in a row) in every heartbeat (appended after the
+    version; older units ignore it). The parent's status screen then shows an amber `CHILD RESTARTED` (`X3`) line until
+    a person restarts the child unit, and the parent logs/prints it once. The status screen is redrawn when this (or the
+    other unit's version) arrives, so it is right even when it opened together with the link.
+- Not covered: a crash loop before the app starts (or a watchdog / hardware reset that runs no code): then nothing can
+  be shown. If a unit does not answer for a minute, connect it to the computer.
+- UNVERIFIED on the boards: the amber and gray lines' position on the status screen.
+
+## 0.5.0
+- Boot chooser: hold BOOT for 2 s while the start-up screen says `HOLD BUTTON 2 S: CHOOSE ROLE` (a 3 s window after
+  READY; nothing of the role has started yet, so it works whatever the role's code does) to pick MASTER / SLAVE / PLAY.
+  Same list and confirmation as the ROLE menu; choosing the current role, BACK, or no answer for 2 minutes carries on
+  with the role in `config.json`.
+- Crash loop: after 3 crashes in a row the chooser appears instead of starting the same role once more, right after the
+  CONFIG step. NOT on the child unit: it stays dark and silent in a crash loop too (the parent unit's "no link" alarm
+  is the signal; a person power-cycles the child unit to get the start-up screen and the chooser).
+  A run of one minute ends the loop.
+  The count lives in the RTC marker (now 7 bytes; units that still have the old marker simply start from 0) and is
+  printed and logged at every boot (`crashes=`).
+- The watchdog now starts after the chooser window (the chooser may wait for minutes).
+- Config (`ui`): `chooser_window_s` (3, 0 = no chooser at start-up), `chooser_hold_s` (2), `chooser_timeout_s` (120),
+  `crash_limit` (3, 0 = never).
+- UNVERIFIED on the boards: holding the button for 2 s right after power-up, the chooser screens, crash counting after
+  real crashes and watchdog restarts.
+
 ## 0.4.0
 - Role switching from the menu. Parent unit: MENU > ROLE (the menu now has 6 items). Play mode: hold the button
   while it is idle > VOLUME, SPEED, ROLE, EXIT. ROLE lists MASTER / SLAVE / PLAY / BACK, asks for confirmation

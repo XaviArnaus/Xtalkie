@@ -9,6 +9,7 @@ patch_time()
 import version
 from net import proto
 from ui import screens as S
+from ui import hud as ui
 from ui.gfx import AMBER
 
 # ---- version text
@@ -44,6 +45,19 @@ long = proto.parse(proto.pack_hello(1, 1, False, "x" * 100))
 check(len(proto.parse_hello_version(long[3])) == proto.VER_MAX, "a too long version is cut to %d bytes" % proto.VER_MAX)
 
 
+# ---- restart code in the heartbeat
+r = proto.parse(proto.pack_hb(3, True, -60.5, 55, False, 4, V, 3))
+check(proto.parse_hb_restart(r[3]) == 3 and proto.parse_hb_version(r[3]) == V and proto.parse_hb(r[3]) == (True, -60.5, 55, False, 4),
+      "HB carries the restart code after the version; version and old fields still read")
+r = proto.parse(proto.pack_hb(3, True, -60.5, 55, False, 4, None, 2))
+check(proto.parse_hb_restart(r[3]) == 2 and proto.parse_hb_version(r[3]) is None, "a restart code without a version works (empty version field)")
+check(proto.parse_hb_restart(b0[3]) is None and proto.parse_hb_restart(b[3]) is None,
+      "an old HB, and an HB with a version but no restart code, read as None")
+check(proto.parse_hb_restart(proto.parse(proto.pack_hb(1, False, None, None, False, 0, V, 0))[3]) == 0, "0 = started by a person")
+check(proto.parse_hb_restart(proto.parse(proto.pack_hb(1, False, None, None, False, 0, V, 999))[3]) == 255, "a huge code is capped at 255")
+check(proto.parse_hb_restart(b0[3] + bytes([99, 1, 2])) is None, "a damaged version length gives None")
+
+
 # ---- status screen
 class G:
     def __init__(self): self.t = []
@@ -67,6 +81,24 @@ g = G()
 S.draw_status(g, "PARENT UNIT", True, (80, False), (80, False), "CHILD", "")
 check(g.t and not any(t[2] == AMBER for t in g.t), "status screen still works with the old arguments")
 
+g = G()
+S.draw_status(g, "PARENT UNIT", True, (80, False), (80, False), "CHILD", "", "0.6.0", None, 1)
+check(("CHILD RESTARTED", 246, AMBER) in g.t, "status screen (parent): 'CHILD RESTARTED' when the child unit restarted by itself")
+g = G()
+S.draw_status(g, "PARENT UNIT", True, (80, False), (80, False), "CHILD", "", "0.6.0", "0.5.0", 4)
+check(("CHILD RESTARTED X3", 246, AMBER) in g.t and ("CHILD HAS 0.5.0", 268, AMBER) in g.t,
+      "... with the crash count, and the version warning on the line below")
+g = G()
+S.draw_status(g, "PARENT UNIT", True, (80, False), (80, False), "CHILD", "", "0.6.0", None, 0)
+check(not any(t[2] == AMBER for t in g.t), "restart code 0 (started by a person): no warning")
+g = G()
+S.draw_status(g, "CHILD ROOM", True, (80, False), (80, False), "PARENT", "", "0.6.0", None, None, "RESTART: CRASH X2")
+check(("RESTART: CRASH X2", 424, S.GRAY) in g.t, "status screen (child): how this unit started, at the bottom")
+g = G()
+S.draw_status(g, "PARENT UNIT", True, (80, False), (80, False), "CHILD", "HOLD BUTTON: MENU", "0.6.0", None, None, "RESTART: CRASH")
+check(not any(t[0] == "RESTART: CRASH" for t in g.t) and any(t[0] == "HOLD BUTTON: MENU" for t in g.t), "... but never over the menu hint")
+check(max(len(x) for x in ("RESTART: NO CLEAN STOP X250", "STARTED BY A PERSON", "RESTART: CRASH X250")) <= 28, "the start notes fit the screen")
+
 # ---- Hud decision
 import board
 from helpers import config
@@ -80,6 +112,17 @@ hud.on_peer_version("0.1.0")
 check(hud.version_warning() == "0.1.0", "Hud: different version, warning text")
 hud.on_peer_version(None)
 check(hud.version_warning() is None, "Hud: an older unit that reports nothing gives no warning")
+draws = []
+hud._draw = lambda now: draws.append(1)
+hud.state = ui.STATUS
+hud.on_peer_restart(3)
+hud.on_peer_restart(3)
+hud.on_peer_version("9.9.9")
+hud.on_peer_version("9.9.9")
+check(len(draws) == 2 and hud.peer_restart == 3, "Hud: an open status screen is redrawn once when the other unit's restart code or version arrives")
+hud.state = ui.OFF
+hud.on_peer_restart(0)
+check(len(draws) == 2, "... and not when the screen is off")
 
 # ---- pc/versions.py
 sys.path.insert(0, os.path.join(ROOT, "pc"))

@@ -2,15 +2,22 @@
 from ui.gfx import BLACK, WHITE, RED, GREEN, AMBER, ORANGE, GRAY, DGRAY
 
 
-def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=None):
-    """ver = this unit's software version (small, under the title); warn = the OTHER unit's version when it
-    differs from ours (amber line under the link text), None when equal or unknown."""
+def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=None, restart=None, note=None):
+    """ver = this unit's software version (small, under the title). Amber lines under the link text:
+    restart = the OTHER unit restarted by itself (None = no, 0 = no, n > 0 = yes, n - 1 crashes in a row);
+    warn = the OTHER unit's version when it differs from ours. note = how THIS unit started, in gray at the
+    bottom (only where there is no hint line, i.e. on the child unit)."""
     g.clear(BLACK)
     g.text_c(title, 18, 4, GRAY)
     if ver:
         g.text_c(ver, 50, 2, GRAY)
+    y = 246
+    if restart:
+        crashes = restart - 1
+        g.text_c("%s RESTARTED%s" % (other_name, (" X%d" % crashes) if crashes > 1 else ""), y, 2, AMBER)
+        y += 22
     if warn:
-        g.text_c("%s HAS %s" % (other_name, warn), 246, 2, AMBER)
+        g.text_c("%s HAS %s" % (other_name, warn), y, 2, AMBER)
     g.circle(184, 130, 62, GREEN if link_ok else RED)
     if link_ok:
         g.check(184, 130, 62, WHITE)
@@ -29,15 +36,19 @@ def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=N
             g.text("%d%%" % pct, 270, y + 13, 4, WHITE)
     if hint:
         g.text_c(hint, 424, 2, GRAY)
+    elif note:
+        g.text_c(str(note)[:28], 424, 2, GRAY)
 
 
 ROLE_NAMES = {"master": "CHILD ROOM", "slave": "PARENT UNIT", "play": "PLAY MODE", "loopback": "LOOPBACK TEST"}
 
 
-def draw_boot(g, version, role, steps):
+def draw_boot(g, version, role, steps, hint=None):
     """Start-up: name, version, role, and the steps. steps = [(label, status)]: None = not yet, "OK" = green,
-    "-" = not used in this role (gray), anything else (e.g. "SEARCHING") = amber."""
+    "-" = not used in this role (gray), anything else (e.g. "SEARCHING") = amber. hint = a line at the bottom."""
     g.clear(BLACK)
+    if hint:
+        g.text_c(hint, 410, 2, AMBER)
     g.text_c("XTALKIE", 40, 6, WHITE)
     g.text_c(version, 100, 3 if len(version) <= 18 else 2, GRAY)
     g.text_c(ROLE_NAMES.get(role, str(role).upper()), 140, 3, WHITE)

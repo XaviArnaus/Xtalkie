@@ -90,7 +90,7 @@ check(sys.path[0] == "/lib" or "/lib" in sys.path[:3], "/lib comes first in the 
 
 # main.py starts the play role
 playcfg = os.path.join(tmp, "play.json")
-open(playcfg, "w").write('{"role": "play"}')
+open(playcfg, "w").write('{"role": "play", "ui": {"chooser_window_s": 0}}')
 import app.play as _play
 called = []
 _real_run = _play.run

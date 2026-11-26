@@ -12,7 +12,7 @@ import time
 
 from dsp.gate import Gate
 import version
-from helpers import config, log, watchdog
+from helpers import bootinfo, config, log, watchdog
 from net import proto
 from ui.hud import NullHud, volume_actions
 
@@ -56,6 +56,7 @@ def run(cfg, audio, net, hud=None):
     hb_ms = mc["hb_ms"]
     loop = hasattr(net, "take")
     my_version = version.full()
+    my_restart = bootinfo.restart_code()       # 0 = a person started this run, n > 0 = it restarted by itself
     gate = Gate(frame_ms=20, **cfg["gate"])
 
     sens = min(5, max(1, int(config.state_load().get("sens_level", mc["sens_level"]))))
@@ -108,6 +109,7 @@ def run(cfg, audio, net, hud=None):
             watchdog.feed()
             now = time.ticks_ms()
             hud.tick(now)
+            bootinfo.stable_check(now)             # after a minute of running, a crash loop is over
             frame += 1
             if frame <= SKIP:
                 continue
@@ -237,7 +239,7 @@ def run(cfg, audio, net, hud=None):
                 last_hb = now
                 hbseq += 1
                 bpct, bchg = hud.battery_info(now)
-                net.send(proto.pack_hb(hbseq, gate.gate_open, gate.floor_db, bpct, bchg, sens, my_version), peer)
+                net.send(proto.pack_hb(hbseq, gate.gate_open, gate.floor_db, bpct, bchg, sens, my_version, my_restart), peer)
 
             if loop and end_pending and not outq:
                 end_pending = False

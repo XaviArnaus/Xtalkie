@@ -8,7 +8,7 @@ import time
 
 from dsp.clipper import Clipper
 from dsp.effects import next_speed, resample_frames
-from helpers import config, log, watchdog
+from helpers import bootinfo, config, log, watchdog
 
 SKIP = 25                  # frames ignored after the microphone opens (digital silence)
 STATUS_MS = 10000
@@ -61,6 +61,7 @@ def run(cfg, audio, ui=None, store=None):
         while True:
             payload, lvl, zc = audio.read_frame()
             watchdog.feed()
+            bootinfo.stable_check(time.ticks_ms())     # after a minute of running, a crash loop is over
             if skip:
                 skip -= 1
                 continue

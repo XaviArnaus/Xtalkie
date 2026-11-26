@@ -7,7 +7,7 @@
 import time
 
 import version
-from helpers import log, watchdog
+from helpers import bootinfo, log, watchdog
 from net import proto
 from ui.hud import NullHud, volume_actions
 
@@ -25,6 +25,7 @@ def run(cfg, audio, net, hud=None):
     link_timeout = sc["link_timeout_ms"]
     alarm_period = sc["alarm_period_ms"]
     my_version = version.full()
+    peer_restart = None              # the child unit's restart code, as last reported
     gain = None                      # the audio object decides (automatic gain or fixed gain)
     master = net.master_addr
 
@@ -74,6 +75,7 @@ def run(cfg, audio, net, hud=None):
             watchdog.feed()
             now = time.ticks_ms()
             hud.tick(now)
+            bootinfo.stable_check(now)             # after a minute of running, a crash loop is over
             net.ensure()
 
             # ---- receive everything that is waiting ----
@@ -96,6 +98,13 @@ def run(cfg, audio, net, hud=None):
                     if master_state is not None:
                         hud.on_peer_status(master_state[2], master_state[3])
                         hud.on_peer_version(proto.parse_hb_version(body))
+                        rc = proto.parse_hb_restart(body)
+                        hud.on_peer_restart(rc)
+                        if rc != peer_restart:
+                            peer_restart = rc
+                            if rc:
+                                print("[slave] the child unit restarted by itself (crashes in a row: %d)" % (rc - 1))
+                                log.write("slave", "child restarted by itself,crashes=%d" % (rc - 1))
                         if master_state[4]:
                             sens_known = master_state[4]
                 elif ptype == proto.T_AUDIO:

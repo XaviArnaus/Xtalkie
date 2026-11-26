@@ -46,8 +46,11 @@ snet.master_addr = ("127.0.0.1", 47470)
 mhud, shud = ui.Hud(mc, "master", board.i2c()), ui.Hud(sc, "slave", board.i2c())
 maudio, saudio = MasterAudio([(3.0, 4.0, -55.0, 45)], 20.0), SlaveAudio()
 
+from helpers import bootinfo
+bootinfo._info = {"previous": bootinfo.RUN, "cause": 3, "manual": False, "crashes": 2}     # this "child unit" restarted by itself, twice in a row
 with Capture() as cap:
     run_pair(master, slave, mc, sc, maudio, saudio, mhud, shud, mnet, snet, 30)
+bootinfo._info = None
 
 # collapse repeats, keep the order of the screens the parent saw
 seq = [s for i, s in enumerate(states) if i == 0 or s != states[i - 1]]
@@ -65,4 +68,7 @@ import version
 check(shud.peer_version == version.full() and mhud.peer_version == version.full(),
       "each unit learns the other's software version (%s / %s)" % (shud.peer_version, mhud.peer_version))
 check(shud.version_warning() is None and mhud.version_warning() is None, "equal versions raise no warning")
+check(shud.peer_restart == 3 and cap.count("the child unit restarted by itself (crashes in a row: 2)") == 1,
+      "the parent learns that the child unit restarted by itself (code %s) and says so once" % shud.peer_restart)
+check(mhud.peer_restart is None, "the child unit gets no such information about the parent")
 finish()

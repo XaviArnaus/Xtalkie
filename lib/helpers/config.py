@@ -35,6 +35,10 @@ DEFAULTS = {
         "boot_screen": "auto",   # start-up screen: auto (the child unit stays dark after an automatic restart) | always | never
         "boot_beep": True,       # one short beep when a person switches the unit on (never after an automatic restart)
         "ready_s": 4,            # how long the "ready" start-up screen stays
+        "chooser_window_s": 3,   # the start-up screen waits this long for BOOT to be held (0 = no role chooser at start-up)
+        "chooser_hold_s": 2,     # ... held this long
+        "chooser_timeout_s": 120,  # the chooser starts the unit with its current role if nobody answers for this long
+        "crash_limit": 3,        # after this many crashes in a row the chooser appears instead of the same role (0 = never)
     },
     "master": {"preroll_lead_ms": 200, "hb_ms": 1000, "verbose": True,
                "sens_level": 3,      # 1 (least sensitive) .. 5 (most); the parent unit's MIC menu changes it

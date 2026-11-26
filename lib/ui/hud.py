@@ -43,6 +43,8 @@ class Hud:
         self.peer = (None, False)                    # battery of the other unit
         self.version = version.full()
         self.peer_version = None                     # software version of the other unit, once known
+        self.peer_restart = None                     # the child unit's restart code (parent unit only): n > 0 = it restarted by itself
+        self.boot_note = None                        # how THIS unit started (shown on the child unit's status screen)
         self.alert_active = False
         self._dismissed = False
         self._hold_until = 0
@@ -119,9 +121,29 @@ class Hud:
     def on_peer_status(self, pct, charging):
         self.peer = (pct, charging)
 
+    def _redraw_status_if_shown(self):
+        try:
+            if self.state == STATUS and self.display is not None:
+                self._draw(time.ticks_ms())
+        except Exception as e:
+            self._fail(e)
+
     def on_peer_version(self, v):
         """Software version of the other unit (None = it does not report one, i.e. older code)."""
+        changed = v != self.peer_version
         self.peer_version = v
+        if changed:
+            self._redraw_status_if_shown()          # the status screen may already be up (it opens when the link does)
+
+    def on_peer_restart(self, code):
+        """The child unit's restart code from its heartbeat (None = older unit that does not report one)."""
+        changed = code != self.peer_restart
+        self.peer_restart = code
+        if changed:
+            self._redraw_status_if_shown()
+
+    def set_boot_note(self, text):
+        self.boot_note = text
 
     def version_warning(self):
         """The other unit's version when it differs from ours (shown in amber on the status screen), else None."""
@@ -184,7 +206,9 @@ class Hud:
             other = "CHILD" if self.is_parent else "PARENT"
             hint = "HOLD BUTTON: MENU" if self.is_parent else ""
             ver, warn = self.version, self.version_warning()
-            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint, ver, warn),
+            restart = self.peer_restart if self.is_parent else None
+            note = None if self.is_parent else self.boot_note
+            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint, ver, warn, restart, note),
                           u["brightness"])
         elif s in (ALARM, PREVIEW):
             ph = self._phase
@@ -398,6 +422,12 @@ class NullHud:
         pass
 
     def on_peer_version(self, v):
+        pass
+
+    def on_peer_restart(self, code):
+        pass
+
+    def set_boot_note(self, text):
         pass
 
     def hold_boot(self, ms):

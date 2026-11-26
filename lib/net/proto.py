@@ -52,12 +52,16 @@ def _ver_parse(payload, offset):
         return None
 
 
-def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0, version=None):
+def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0, version=None, restart=None):
+    """restart (0..255) follows the version field: 0 = started by a person, n > 0 = restarted by itself (see
+    helpers/bootinfo.restart_code). Without a version an empty version field keeps the layout."""
     f = 0 if floor_db is None else int(floor_db * 10)
     b = 255 if batt is None else int(batt)
     body = struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens)
-    if version:
-        body += _ver_bytes(version)
+    if version or restart is not None:
+        body += _ver_bytes(version or "")
+    if restart is not None:
+        body += bytes([min(255, max(0, int(restart)))])
     return pack(T_HB, seq, body)
 
 
@@ -81,6 +85,16 @@ def parse_hb(payload):
 def parse_hb_version(payload):
     """Software version text of the master, or None."""
     return _ver_parse(payload, 6)
+
+
+def parse_hb_restart(payload):
+    """The master's restart code (0 = started by a person, n > 0 = restarted by itself), or None (older unit)."""
+    if len(payload) <= 6:
+        return None
+    n = payload[6]
+    if n > VER_MAX or len(payload) <= 7 + n:
+        return None
+    return payload[7 + n]
 
 
 def pack_hello(seq, batt=None, charging=False, version=None):

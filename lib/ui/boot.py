@@ -47,6 +47,7 @@ class Boot:
         self.shown = bool(show) and display is not None
         self.brightness = brightness
         self.steps = [[n, None] for n in STEPS]
+        self.hint = None                          # a line at the bottom, e.g. how to reach the role chooser
         self.t0 = self.last = time.ticks_ms()
 
     def step(self, name, status="OK"):
@@ -60,12 +61,16 @@ class Boot:
                 s[1] = status
         self._draw()
 
+    def redraw(self):
+        """Draw the start-up screen again (after the chooser has used the panel)."""
+        self._draw()
+
     def _draw(self):
         if not self.shown:
             return
         try:
             from ui import screens as S
-            S.draw_boot(self.gfx, self.version, self.role, [tuple(s) for s in self.steps])
+            S.draw_boot(self.gfx, self.version, self.role, [tuple(s) for s in self.steps], self.hint)
             self.display.show(self.brightness)
         except Exception as e:
             print("[boot] screen error, start-up screen off:", e)

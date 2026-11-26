@@ -32,6 +32,32 @@ class Button:
         return None
 
 
+    def held_for(self, window_ms, hold_ms):
+        """Wait up to window_ms for the button to be held down for hold_ms (a press that began inside the window is
+        followed to the end). True = it was held long enough. Blocking; used once at start-up."""
+        t0 = time.ticks_ms()
+        down_since = None
+        while True:
+            now = time.ticks_ms()
+            if self.pin.value() == 0:
+                if down_since is None:
+                    down_since = now
+                if time.ticks_diff(now, down_since) >= hold_ms:
+                    return True
+            else:
+                down_since = None
+                if time.ticks_diff(now, t0) >= window_ms:
+                    return False
+            time.sleep_ms(20)
+
+    def wait_release(self, limit_ms=10000):
+        """Wait until the button is up again (so the end of a long hold is not read as a press)."""
+        t0 = time.ticks_ms()
+        while self.pin.value() == 0 and time.ticks_diff(time.ticks_ms(), t0) < limit_ms:
+            time.sleep_ms(20)
+        self._t = None
+
+
 def volume_actions(audio):
     """Menu actions that read and step the volume level (1..5) and remember it across reboots."""
     def step():

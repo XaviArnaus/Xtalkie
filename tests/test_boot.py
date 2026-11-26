@@ -77,9 +77,12 @@ Display.init = lambda self: (inits.append(1), _init(self))[1]
 
 
 class Out:
+    current = None
+
     def __enter__(self):
         self.lines, self.real = [], builtins.print
         builtins.print = lambda *a, **k: self.lines.append(" ".join(str(x) for x in a))
+        Out.current = self
         return self
 
     def __exit__(self, *e):
@@ -230,17 +233,18 @@ _ports = iter(range(47520, 47600))
 captured = {}
 
 
-def run_main(role, marker, cause, ui_over=None, runner=None, auto_reboot=False, wifi_joined=False):
+def run_main(role, marker, cause, ui_over=None, runner=None, auto_reboot=False, wifi_joined=False, count=0):
     """Execute main.py as the board would. Returns (printed lines, captured hud / net, number of panel draws, beeps)."""
     import json
     cfgd = {"role": role, "port": next(_ports), "log": False, "auto_reboot": auto_reboot, "ui": dict(ui_over or {})}
     cfgd["ui"].setdefault("ready_s", 1)
+    cfgd["ui"].setdefault("chooser_window_s", 0)         # the chooser's wait for the button has its own tests below
     path = os.path.join(tmp, "c%d.json" % cfgd["port"])
     json.dump(cfgd, open(path, "w"))
     machine.CAUSE["v"] = cause
     machine.RTC.MEM["b"] = b""
     if marker is not None:
-        bootinfo.mark(marker)
+        bootinfo.mark(marker, count)
     WLAN.joined = wifi_joined
     captured.clear()
     shows.clear()
@@ -337,5 +341,73 @@ lines, cap, nshow, nbeep = run_main("master", None, P, runner=stop)
 check(bootinfo.read() == bootinfo.CLEAN and any(l == "stopped" for l in lines), "a stop on purpose is marked CLEAN")
 check(begin(bootinfo.CLEAN, machine.PWRON_RESET)["manual"], "... so the next power-on is a normal manual start")
 
+# ---------------------------------------------------------------- the role chooser at start-up
+print("-- main.py: the role chooser")
+import helpers.watchdog as wd
+from ui import chooser as chooser_mod
+from ui import menu as menu_mod
+
+order, hints, asked = [], [], []
+_choose, _held, _wd, _draw_boot = chooser_mod.choose, menu_mod.Button.held_for, wd.start, S_.draw_boot
+
+
+def fake_choose(display, gfx, brightness, current, why="hold", timeout_s=120, feed=None, btn=None):
+    asked.append((why, current, sum(1 for l in Out.current.lines if l.startswith("[boot] +"))))
+    order.append("chooser")
+    display.show(brightness)                  # the chooser lights the panel
+    return True
+
+
+def fake_held(self, window, hold):
+    order.append("wait")
+    held_calls.append((window, hold))
+    return held_result[0]
+
+
+held_calls, held_result = [], [True]
+chooser_mod.choose = fake_choose
+menu_mod.Button.held_for = fake_held
+wd.start = lambda ms: order.append("watchdog")
+S_.draw_boot = lambda g, v, r, steps, hint=None: (hints.append(hint), _draw_boot(g, v, r, steps, hint))[1]
+
+
+def chooser_run(role, marker, cause, count=0, held=True, **kw):
+    order.clear(), hints.clear(), asked.clear(), held_calls.clear()
+    held_result[0] = held
+    return run_main(role, marker, cause, count=count, **kw)
+
+
+lines, cap, nshow, nbeep = chooser_run("master", bootinfo.RUN, W, count=2)
+check(not asked and nshow == 0 and nbeep == 0 and not hud_of(cap).display.on and hud_of(cap).state == ui.OFF,
+      "child unit in a crash loop: NO chooser, no screen, no beep (the room stays dark)")
+check(any("3 crashes in a row: child unit stays dark" in l for l in lines), "... and it only says so in the serial output")
+lines, cap, nshow, nbeep = chooser_run("slave", bootinfo.RUN, W, count=2)
+check(asked == [("crash", "slave", 1)] and nshow >= 4 and hud_of(cap).state == ui.BOOT,
+      "parent unit in a crash loop: the chooser right after the CONFIG step, then the start-up screen again (%s)" % asked)
+lines, cap, nshow, nbeep = chooser_run("slave", bootinfo.RUN, W, count=1)
+check(not asked, "2 crashes in a row: no chooser yet")
+lines, cap, nshow, nbeep = chooser_run("master", bootinfo.RUN, W, count=7, ui_over={"crash_limit": 0})
+check(not asked, "crash_limit 0: never")
+
+lines, cap, nshow, nbeep = chooser_run("slave", None, P, ui_over={"chooser_window_s": 3})
+check(held_calls == [(3000, 2000)] and asked == [("hold", "slave", 4)], "start-up screen waits 3 s for the button to be held 2 s, and the chooser opens")
+check(hints[0] is None and hints[-2] == "HOLD BUTTON 2 S: CHOOSE ROLE" and hints[-1] is None,
+      "the hint 'HOLD BUTTON 2 S: CHOOSE ROLE' is on the READY screen while it waits, and gone afterwards")
+lines, cap, nshow, nbeep = chooser_run("slave", None, P, held=False, ui_over={"chooser_window_s": 3})
+check(held_calls and not asked and hints[-1] is None, "button not held: no chooser, the hint is removed")
+lines, cap, nshow, nbeep = chooser_run("master", bootinfo.AUTO, S, ui_over={"chooser_window_s": 3})
+check(not held_calls and not asked, "child unit after an automatic restart: dark, so no waiting for the button")
+lines, cap, nshow, nbeep = chooser_run("master", None, P, ui_over={"chooser_window_s": 3})
+check(held_calls and asked and asked[0][0] == "hold", "child unit switched on by a person: the chooser is reachable")
+lines, cap, nshow, nbeep = chooser_run("slave", None, P, ui_over={"chooser_window_s": 0})
+check(not held_calls and not asked and None in hints, "chooser_window_s 0: no waiting, no chooser")
+lines, cap, nshow, nbeep = chooser_run("slave", None, P, auto_reboot=True, ui_over={"chooser_window_s": 3})
+check(order == ["wait", "chooser", "watchdog"], "the watchdog starts only after the chooser (it may wait for minutes): %s" % order)
+lines, cap, nshow, nbeep = chooser_run("play", None, P, ui_over={"chooser_window_s": 3})
+check(asked == [("hold", "play", 4)] and cap["kw"]["ui"] is not None, "play mode: the chooser is reachable too")
+lines, cap, nshow, nbeep = chooser_run("loopback", None, P, ui_over={"chooser_window_s": 3})
+check(asked and asked[0][1] == "loopback", "loopback: the chooser is reachable too")
+
+chooser_mod.choose, menu_mod.Button.held_for, wd.start, S_.draw_boot = _choose, _held, _wd, _draw_boot
 Display.show, Display.init = _show, _init
 finish()
