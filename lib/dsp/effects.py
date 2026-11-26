@@ -2,6 +2,15 @@
 # 0.75 = lower and slower. Nearest-neighbour resampling: crude, and good enough for a toy.
 import struct
 
+SPEEDS = (0.75, 1.0, 1.4)           # the menu steps through these: deep, as spoken, chipmunk
+
+
+def next_speed(v):
+    """The speed after v in SPEEDS (the nearest one first, if v is not one of them)."""
+    i = min(range(len(SPEEDS)), key=lambda k: abs(SPEEDS[k] - v))
+    return SPEEDS[(i + 1) % len(SPEEDS)]
+
+
 FRAME = 320                         # samples per frame, as in board.FRAMES
 _FMT = "<%dh" % FRAME
 

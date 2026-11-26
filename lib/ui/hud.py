@@ -12,25 +12,13 @@ import time
 import board
 import version
 from drivers.axp2101 import AXP2101
+from ui import menu
 
-OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT = 0, 1, 2, 3, 4, 5, 6, 7
-MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "EXIT")
-LONG_MS = 1200
+OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT, ROLE = 0, 1, 2, 3, 4, 5, 6, 7, 8
+MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "ROLE", "EXIT")
+LONG_MS = menu.LONG_MS
 BATT_REFRESH_MS = 30000
-
-
-def volume_actions(audio):
-    """Menu actions that read and step the volume level (1..5) and remember it across reboots."""
-    from helpers import config
-
-    def step():
-        n = audio.level % 5 + 1
-        audio.set_level(n)
-        config.state_save("volume_level", n)
-        audio.beep(n=1)                      # a beep at the new level
-        return n
-
-    return {"get_level": lambda: audio.level, "volume_step": step}
+volume_actions = menu.volume_actions          # moved to ui/menu.py (shared with the play mode); kept importable from here
 
 
 class Hud:
@@ -60,6 +48,7 @@ class Hud:
         self._hold_until = 0
         self.muted_until = None
         self.idx = 0
+        self.switch = None                           # the role switch in progress (ui/menu.py RoleSwitch)
         self.test = None
         self.actions = {}
         self._press_t = None
@@ -219,6 +208,19 @@ class Hud:
             t = self.test or {"deadline": now, "pkts": 0, "level": -99.0, "result": None}
             rem = max(0, time.ticks_diff(t["deadline"], now) // 1000)
             self._present(lambda g: S.draw_test(g, rem, t["pkts"], t["level"], t["result"]), u["brightness"])
+        elif s == ROLE:
+            sw = self.switch
+            if sw.state == "pick":
+                labels, idx = sw.labels(), sw.idx
+                self._present(lambda g: S.draw_menu(g, labels, idx, "ROLE"), u["brightness"])
+            elif sw.state == "confirm":
+                target = sw.target
+                self._present(lambda g: S.draw_confirm(g, target), u["brightness"])
+            elif sw.state == "done":
+                self._present(lambda g: S.draw_message(g, "RESTARTING", "", S.GREEN), u["brightness"])
+            else:
+                err = sw.error
+                self._present(lambda g: S.draw_message(g, "NOT SAVED", err, S.AMBER), u["brightness"])
 
     def _button(self, now):
         down = self.btn.value() == 0
@@ -267,6 +269,23 @@ class Hud:
             self._go(MENU, now, 20000)
         elif s == PREVIEW:
             self._go(OFF, now, None)
+        elif s == ROLE:
+            self._role_result(self.switch.tap() if ev == "short" else self.switch.hold(), now)
+
+    def _role_result(self, res, now):
+        """What the role switch asked for: redraw, back to the menu, or restart (config.json is already written)."""
+        sw = self.switch
+        if res == "cancel":
+            self.switch = None
+            self._go(MENU, now, 20000)
+        elif res == "reset":
+            from helpers import log
+            log.write("ui", "role switch %s -> %s" % (self.role, sw.target))
+            print("[ui] role %s -> %s: restarting" % (self.role, sw.target))
+            self._go(ROLE, now, None)               # shows RESTARTING
+            menu.restart()
+        else:
+            self._go(ROLE, now, 4000 if sw.state == "failed" else 20000)
 
     def _select(self, now):
         item = MENU_ITEMS[self.idx]
@@ -291,6 +310,9 @@ class Hud:
             fn = self.actions.get("alarm_preview")
             if fn:
                 fn()
+        elif item == "ROLE":
+            self.switch = menu.RoleSwitch(self.role)
+            self._go(ROLE, now, 20000)
         else:
             self._go(OFF, now, None)
 
@@ -331,6 +353,11 @@ class Hud:
             elif s == PREVIEW:
                 if self._expired(now, self._until):
                     self._go(OFF, now, None)
+            elif s == ROLE:
+                if self._expired(now, self._until):
+                    failed = self.switch is not None and self.switch.state == "failed"
+                    self.switch = None
+                    self._go(MENU if failed else OFF, now, 20000 if failed else None)
             elif s == TEST:
                 t = self.test
                 if t is None:

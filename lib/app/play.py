@@ -7,8 +7,8 @@
 import time
 
 from dsp.clipper import Clipper
-from dsp.effects import resample_frames
-from helpers import log, watchdog
+from dsp.effects import next_speed, resample_frames
+from helpers import config, log, watchdog
 
 SKIP = 25                  # frames ignored after the microphone opens (digital silence)
 STATUS_MS = 10000
@@ -38,7 +38,16 @@ def run(cfg, audio, ui=None, store=None):
     clipper = Clipper(frame_ms=20, trig_db=pc["trig_db"], end_db=pc["end_db"], hang_ms=pc["hang_ms"],
                       pre_ms=pc["pre_ms"], tail_ms=pc["tail_ms"], min_ms=pc["min_ms"], max_s=pc["max_s"])
     idle_off_ms = pc["idle_off_s"] * 1000
-    speed = pc["speed"]
+    sp = [config.state_load().get("play_speed", pc["speed"])]      # the menu's SPEED setting is remembered
+
+    def speed_get():
+        return sp[0]
+
+    def speed_step():
+        sp[0] = next_speed(sp[0])
+        config.state_save("play_speed", sp[0])
+        return sp[0]
+
     n_clips = store.count() if store else 0
     warned = False
 
@@ -58,7 +67,17 @@ def run(cfg, audio, ui=None, store=None):
             now = time.ticks_ms()
             ev = clipper.update(lvl, payload)
             if ev is None:
+                ui.recording = clipper.recording
                 ui.tick(now, idle_off_ms)
+                if getattr(ui, "menu_wanted", False) and not clipper.recording:
+                    audio.close()                       # nothing is recorded or drawn at the same time
+                    ui.run_menu(audio, speed_get, speed_step, watchdog.feed)
+                    ui.ready(n_clips)
+                    audio.open_rx()
+                    skip = SKIP
+                    clipper.reset()
+                    last_status = time.ticks_ms()
+                    continue
                 if time.ticks_diff(now, last_status) >= STATUS_MS:
                     last_status = now
                     print("[play] %6.1f dB  floor %6.1f" % (lvl, clipper.floor))
@@ -82,7 +101,7 @@ def run(cfg, audio, ui=None, store=None):
                     n_clips = store.count()
             print("[play] clip %.1f s -> %s" % (secs, path or "not saved"))
             log.write("play", "clip,%.1f s,%s" % (secs, path or "not saved"))
-            out = frames if speed == 1 else resample_frames(frames, speed)
+            out = frames if sp[0] == 1 else resample_frames(frames, sp[0])
             ui.playing(n_clips)
             _play(audio, out)
             ui.ready(n_clips)

@@ -107,7 +107,11 @@ The BOOT button, and the panel is dark unless something is shown.
 - **tap**: status (link icon, battery of this unit and of the other unit), 10 s.
 - **hold 1 s** (parent unit): menu. Tap = next item, hold = select.
   TEST LIVE (stream the child's microphone for 10 s: AUDIO OK / NO AUDIO), TEST ALARM, VOLUME n (1..5, remembered),
-  MIC n (1..5 = the child unit's sensitivity, set remotely and remembered there), EXIT.
+  MIC n (1..5 = the child unit's sensitivity, set remotely and remembered there), ROLE, EXIT.
+- **ROLE** (parent unit menu, and the play menu): MASTER / SLAVE / PLAY / BACK. Choose one (hold), confirm with hold =
+  YES (tap = NO), and the unit writes `config.json` (only the `role` key; the old file stays as `config.json.bak`) and
+  restarts in the new role. The child unit has no menu on purpose: a toddler cannot switch its role. To change the
+  child unit's role, edit `config.json` or run `pc/deploy.py`.
 - **alert** (parent): the screen wakes with a bell while the audio plays; a tap dismisses it.
 - **no link** (parent): cross + beeps; a tap mutes them for 5 minutes.
 - Battery bolt = external power. `USB` = no battery detected.
@@ -121,7 +125,9 @@ with what the monitor hears at night.
 
 **Switch a board to it** (either board; it replaces the monitor role on that board while it runs):
 `python pc/deploy.py <port> play`, or in Thonny open `/config.json` on the board, set `"role": "play"` and reset.
-**Switch back before the night:** set the role back to `master` or `slave` (or deploy again) and reset.
+**Switch back before the night:** hold the button while it is idle > ROLE > MASTER or SLAVE > hold = YES (or edit
+`config.json` / deploy again). The same menu has VOLUME and SPEED (0.75 deep / 1.0 as spoken / 1.4 chipmunk, remembered).
+The menu opens only when no clip is being recorded, and the microphone is closed while it is open.
 
 What she sees: a green ring and "SPEAK" while it listens, a blue disc and "LISTEN" while it plays her voice back,
 and the number of clips kept. The screen switches itself off after `idle_off_s` without a sound. It is never drawn

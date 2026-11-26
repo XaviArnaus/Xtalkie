@@ -66,15 +66,37 @@ def draw_linklost(g, phase):
     g.text_c("BUTTON: MUTE", 420, 2, WHITE if phase == 0 else GRAY)
 
 
-def draw_menu(g, items, idx):
+def draw_menu(g, items, idx, title="MENU"):
     g.clear(BLACK)
-    g.text_c("MENU", 16, 5, GRAY)
+    g.text_c(title, 16, 5, GRAY)
+    pitch = min(72, 360 // max(1, len(items)))          # 5 items: 72 (as before); 6 items: 60
+    box = pitch - 10
     for i, name in enumerate(items):
-        y = 70 + i * 72
+        y = 70 + i * pitch
         sel = i == idx
-        g.rect(24, y, 320, 62, WHITE if sel else DGRAY)
-        g.text_c(name, y + 17, 4, BLACK if sel else WHITE)
+        g.rect(24, y, 320, box, WHITE if sel else DGRAY)
+        g.text_c(name, y + (box - 28) // 2, 4, BLACK if sel else WHITE)
     g.text_c("TAP:NEXT HOLD:OK", 432, 2, GRAY)
+
+
+def draw_confirm(g, role):
+    """Role switch: are you sure? HOLD = yes, TAP = no."""
+    g.clear(BLACK)
+    g.text_c("SWITCH TO", 50, 5, GRAY)
+    name = ROLE_NAMES.get(role, str(role).upper())
+    g.text_c(name, 110, 5 if len(name) <= 11 else 4, WHITE)
+    g.text_c("THE UNIT RESTARTS", 200, 3, AMBER)
+    g.rect(24, 290, 320, 56, GREEN)
+    g.text_c("HOLD: YES", 306, 4, BLACK)
+    g.rect(24, 362, 320, 56, DGRAY)
+    g.text_c("TAP: NO", 378, 4, WHITE)
+
+
+def draw_message(g, title, detail, color):
+    g.clear(BLACK)
+    g.text_c(title, 160, 5, color)
+    if detail:
+        g.text_c(str(detail)[:28], 240, 2, GRAY)
 
 
 def draw_test(g, remaining, pkts, level_db, result):

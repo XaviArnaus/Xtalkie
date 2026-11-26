@@ -68,14 +68,58 @@ def _merge(base, over):
             base[k] = v
 
 
-def load(path="/config.json"):
+CONFIG = "/config.json"
+SWITCHABLE = ("master", "slave", "play")        # roles the menu may switch to
+
+
+def load(path=CONFIG):
     cfg = json.loads(json.dumps(DEFAULTS))       # deep copy
-    try:
-        with open(path) as f:
-            _merge(cfg, json.load(f))
-    except OSError:
-        pass                                     # no file: defaults
+    for p in (path, path + ".new"):              # ".new" only matters if a role switch was cut off mid-way
+        try:
+            with open(p) as f:
+                _merge(cfg, json.load(f))
+            break
+        except OSError:
+            pass                                 # no file: try the next, then the defaults
     return cfg
+
+
+def save_role(role, path=CONFIG):
+    """Change ONLY the "role" key of config.json, safely. Returns (ok, message).
+    Order: parse the old file (a file we cannot parse is never overwritten), copy it to .bak, write the new text to
+    .new, read that back and check it, then rename .new over the file (littlefs: atomic; FAT cannot rename onto an
+    existing file, so there the old file is removed first, and load() falls back to .new in that tiny window)."""
+    import os
+    if role not in SWITCHABLE:
+        return False, "unknown role"
+    new, bak = path + ".new", path + ".bak"
+    try:
+        try:
+            with open(path) as f:
+                old_text = f.read()
+            old = json.loads(old_text)
+            if not isinstance(old, dict):
+                raise ValueError("config.json is not an object")
+        except OSError:
+            old_text, old = None, {}
+        if old_text is not None:
+            with open(bak, "w") as f:
+                f.write(old_text)
+        old["role"] = role
+        with open(new, "w") as f:
+            f.write(json.dumps(old))
+        with open(new) as f:
+            chk = json.loads(f.read())
+        if chk != old:
+            raise ValueError("check after writing failed")
+        try:
+            os.rename(new, path)
+        except OSError:
+            os.remove(path)
+            os.rename(new, path)
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)[:30]
 
 
 STATE = "/state.json"          # settings changed from the menu (kept apart from config.json)
