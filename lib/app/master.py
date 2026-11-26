@@ -11,6 +11,7 @@ import struct
 import time
 
 from dsp.gate import Gate
+import version
 from helpers import config, log, watchdog
 from net import proto
 from ui.hud import NullHud, volume_actions
@@ -54,6 +55,7 @@ def run(cfg, audio, net, hud=None):
     lead = mc["preroll_lead_ms"] // 20
     hb_ms = mc["hb_ms"]
     loop = hasattr(net, "take")
+    my_version = version.full()
     gate = Gate(frame_ms=20, **cfg["gate"])
 
     sens = min(5, max(1, int(config.state_load().get("sens_level", mc["sens_level"]))))
@@ -199,6 +201,7 @@ def run(cfg, audio, net, hud=None):
                         last_hello = now
                         pb = proto.parse_hello(info[3])
                         hud.on_peer_status(pb[0], pb[1])
+                        hud.on_peer_version(proto.parse_hello_version(info[3]))
                         hud.on_link(True)
                     elif info is not None and info[0] == proto.T_CMD:
                         cmd, arg = proto.parse_cmd(info[3])
@@ -234,7 +237,7 @@ def run(cfg, audio, net, hud=None):
                 last_hb = now
                 hbseq += 1
                 bpct, bchg = hud.battery_info(now)
-                net.send(proto.pack_hb(hbseq, gate.gate_open, gate.floor_db, bpct, bchg, sens), peer)
+                net.send(proto.pack_hb(hbseq, gate.gate_open, gate.floor_db, bpct, bchg, sens, my_version), peer)
 
             if loop and end_pending and not outq:
                 end_pending = False

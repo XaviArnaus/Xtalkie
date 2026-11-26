@@ -10,6 +10,8 @@ main.py              starts the role named in config.json
 config.json          per board: role, WiFi, settings (not in this folder: deploy.py / you create it)
 config.example.json  an example to copy
 README.md
+CHANGELOG.md         what changed in each version (bump VERSION in lib/version.py for every change put on a board)
+lib/version.py       the software version of this code (and the commit stamp written by deploy.py)
 lib/                 everything else; each layer only uses the layers above it in this list
   drivers/           ONE MODULE PER CHIP, named after the chip, no application knowledge
     es8311.py          audio codec (I2C control)
@@ -29,6 +31,7 @@ tools/               run by hand from Thonny (never at boot)
   ui_demo.py  screen_probe.py  battery_check.py  disk.py  record_raw.py  cleanup_old.py
 pc/                  runs on the computer, not on the board
   deploy.py          copies the project to a board and writes its config.json
+  versions.py        lists the software version and role of every connected board (restarts them afterwards)
   raw2wav.py         converts a raw recording into a WAV file
   requirements.txt   mpremote (for deploy.py)
 tests/               host-side tests: Python 3 only, no hardware (see "Tests")
@@ -72,6 +75,14 @@ Board: Waveshare ESP32-S3-Touch-AMOLED-1.8, original revision (SH8601 panel, FT3
 3. *Coming from the first, flat layout?* Run `tools/cleanup_old.py` on the board once (or use `--clean`), then reset.
    `state.json`, `config.json` and the log files are kept.
 4. Same `ssid` / `password` on both boards. `--night` (or `"auto_reboot": true`) restarts a board after a crash or hang.
+
+### Software version
+
+Every board knows its version (`lib/version.py`): printed at boot, in the log (`boot,...,ver=`), and in small text under
+the title of the status screen. `deploy.py` adds the git commit (`0.2.0 6f14f8d`; a `+` means tracked files differed
+from the commit); a hand-flashed board shows just `0.2.0`. The two units send each other their version; when they
+differ the status screen shows an amber `<OTHER> HAS <version>` line. Units from before versions existed report
+nothing, so no warning appears for them. `python pc/versions.py` lists the connected boards.
 
 A board starts by itself at power-up. A board that only needs power can run from a USB charger or power bank.
 Role `idle` starts nothing: a clean board for the tools. Role `loopback` tests everything on one board.
@@ -134,7 +145,7 @@ python tests/run_all.py          # about a minute, no hardware, Python 3 only
 ```
 They use stand-ins for `machine` and `amoled` (`tests/stubs/`). They check: imports and the layering rule, the chip
 drivers on fake registers, the gate on synthetic snoring / speech / thump, the loopback path, the tools and
-`deploy.py`, and two threaded master + slave simulations over real UDP (alerts, menu, live test, link loss, mute,
+`deploy.py` (with its version stamp), the version exchange and `pc/versions.py`, and two threaded master + slave simulations over real UDP (alerts, menu, live test, link loss, mute,
 the stream-length limit, the remote MIC level). Run them after every change; they do not replace a test on the boards.
 
 ## Battery

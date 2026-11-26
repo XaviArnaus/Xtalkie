@@ -33,7 +33,8 @@ def _warn_legacy():
 def main():
     cfg = config.load()
     role = cfg["role"]
-    print("xtalkie: role '%s'" % role)
+    import version
+    print("xtalkie %s: role '%s'" % (version.full(), role))
     if role == "idle":
         print("idle: nothing started (use this role to run the tools on a clean board)")
         return
@@ -62,7 +63,7 @@ def main():
         print("[disk] %d KB free of %d KB" % (free_kb, total_kb))
     except Exception:
         free_kb = -1
-    log.write("boot", "role=%s,free_kb=%d" % (role, free_kb))
+    log.write("boot", "role=%s,ver=%s,free_kb=%d" % (role, version.full(), free_kb))
 
     if role == "play":
         from app import play

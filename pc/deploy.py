@@ -23,6 +23,18 @@ ROOT_FILES = ["main.py", "README.md"]
 DIRS = ["lib", "tools"]
 
 
+def git_stamp(src):
+    """(short commit, modified?) of the project folder, or None when git is not available here.
+    'Modified' means tracked files differ from the commit (untracked files are ignored)."""
+    try:
+        run = lambda *a: subprocess.run(["git", "-C", src] + list(a), capture_output=True, text=True, check=True).stdout
+        commit = run("rev-parse", "--short", "HEAD").strip()
+        dirty = bool(run("status", "--porcelain", "--untracked-files=no").strip())
+        return (commit, dirty) if commit else None
+    except Exception:
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", help="serial port of the board, e.g. COM5 or /dev/ttyACM0")
@@ -67,9 +79,22 @@ def main():
             rel = os.path.relpath(dp, src).replace(os.sep, "/")
             mp("fs", "mkdir", ":" + rel, check=False)           # already there is fine
             for f in sorted(fn):
-                if f.endswith(".pyc"):
+                if f.endswith(".pyc") or f == "_build.py":      # _build.py is written below, never taken from disk
                     continue
                 mp("fs", "cp", os.path.join(dp, f), ":" + rel + "/" + f)
+
+    # version stamp: which commit this upload came from (lib/version.py shows it on the board)
+    stamp = git_stamp(src)
+    if stamp:
+        print("build stamp: %s%s" % (stamp[0], "+ (modified files)" if stamp[1] else ""))
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as t:
+            t.write("COMMIT = %r\nDIRTY = %r\n" % stamp)
+            tmp_b = t.name
+        mp("fs", "cp", tmp_b, ":lib/_build.py")
+        os.unlink(tmp_b)
+    else:
+        print("build stamp: none (no git here); an old stamp on the board is removed")
+        mp("fs", "rm", ":lib/_build.py", check=False)
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as t:
         json.dump(cfg, t, indent=2)

@@ -2,9 +2,15 @@
 from ui.gfx import BLACK, WHITE, RED, GREEN, AMBER, ORANGE, GRAY, DGRAY
 
 
-def draw_status(g, title, link_ok, me, other, other_name, hint):
+def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=None):
+    """ver = this unit's software version (small, under the title); warn = the OTHER unit's version when it
+    differs from ours (amber line under the link text), None when equal or unknown."""
     g.clear(BLACK)
     g.text_c(title, 18, 4, GRAY)
+    if ver:
+        g.text_c(ver, 50, 2, GRAY)
+    if warn:
+        g.text_c("%s HAS %s" % (other_name, warn), 246, 2, AMBER)
     g.circle(184, 130, 62, GREEN if link_ok else RED)
     if link_ok:
         g.check(184, 130, 62, WHITE)

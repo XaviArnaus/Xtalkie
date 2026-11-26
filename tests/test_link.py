@@ -61,4 +61,8 @@ check(shud.test is not None and shud.test.get("result") is True and shud.test["p
 check(cap.has("[slave] LINK LOST"), "link loss detected after the master stops")
 check(len(saudio.beeps) == 1 and shud.muted_until is not None, "the no-link beeps are muted by one tap (%d beep)" % len(saudio.beeps))
 check(shud.peer == (76, True) and mhud.peer == (76, True), "each unit sees the other's battery %s / %s" % (shud.peer, mhud.peer))
+import version
+check(shud.peer_version == version.full() and mhud.peer_version == version.full(),
+      "each unit learns the other's software version (%s / %s)" % (shud.peer_version, mhud.peer_version))
+check(shud.version_warning() is None and mhud.version_warning() is None, "equal versions raise no warning")
 finish()

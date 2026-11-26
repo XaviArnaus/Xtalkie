@@ -10,6 +10,7 @@
 import time
 
 import board
+import version
 from drivers.axp2101 import AXP2101
 
 OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW = 0, 1, 2, 3, 4, 5, 6
@@ -50,6 +51,8 @@ class Hud:
         self._phase_t = 0
         self.link_ok = False
         self.peer = (None, False)                    # battery of the other unit
+        self.version = version.full()
+        self.peer_version = None                     # software version of the other unit, once known
         self.alert_active = False
         self._dismissed = False
         self._hold_until = 0
@@ -122,6 +125,15 @@ class Hud:
     def on_peer_status(self, pct, charging):
         self.peer = (pct, charging)
 
+    def on_peer_version(self, v):
+        """Software version of the other unit (None = it does not report one, i.e. older code)."""
+        self.peer_version = v
+
+    def version_warning(self):
+        """The other unit's version when it differs from ours (shown in amber on the status screen), else None."""
+        v = self.peer_version
+        return v if (v is not None and v != self.version) else None
+
     def on_alert_start(self):
         try:
             self.alert_active = True
@@ -177,7 +189,9 @@ class Hud:
             title = "PARENT UNIT" if self.is_parent else "CHILD ROOM"
             other = "CHILD" if self.is_parent else "PARENT"
             hint = "HOLD BUTTON: MENU" if self.is_parent else ""
-            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint), u["brightness"])
+            ver, warn = self.version, self.version_warning()
+            self._present(lambda g: S.draw_status(g, title, self.link_ok, me, self.peer, other, hint, ver, warn),
+                          u["brightness"])
         elif s in (ALARM, PREVIEW):
             ph = self._phase
             self._present(lambda g: S.draw_alarm(g, ph), u["alarm_brightness"])
@@ -343,6 +357,9 @@ class NullHud:
         pass
 
     def on_peer_status(self, pct, charging):
+        pass
+
+    def on_peer_version(self, v):
         pass
 
     def on_alert_start(self):

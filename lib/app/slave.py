@@ -6,6 +6,7 @@
 # If no packet from the master arrives for link_timeout_ms the alarm beeps every alarm_period_ms.
 import time
 
+import version
 from helpers import log, watchdog
 from net import proto
 from ui.hud import NullHud, volume_actions
@@ -23,6 +24,7 @@ def run(cfg, audio, net, hud=None):
     jitter = sc["jitter_frames"]
     link_timeout = sc["link_timeout_ms"]
     alarm_period = sc["alarm_period_ms"]
+    my_version = version.full()
     gain = None                      # the audio object decides (automatic gain or fixed gain)
     master = net.master_addr
 
@@ -93,6 +95,7 @@ def run(cfg, audio, net, hud=None):
                     master_state = proto.parse_hb(body)
                     if master_state is not None:
                         hud.on_peer_status(master_state[2], master_state[3])
+                        hud.on_peer_version(proto.parse_hb_version(body))
                         if master_state[4]:
                             sens_known = master_state[4]
                 elif ptype == proto.T_AUDIO:
@@ -123,7 +126,7 @@ def run(cfg, audio, net, hud=None):
                 last_hello = now
                 hseq += 1
                 bpct, bchg = hud.battery_info(now)
-                net.send(proto.pack_hello(hseq, bpct, bchg), master)
+                net.send(proto.pack_hello(hseq, bpct, bchg, my_version), master)
 
             # ---- playback ----
             if not playing and queue and (len(queue) >= jitter or end_flag):

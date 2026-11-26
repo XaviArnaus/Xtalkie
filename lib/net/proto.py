@@ -29,10 +29,36 @@ def parse(data):
     return ptype, flags, seq, data[HDR_LEN:]
 
 
-def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0):
+# The software version rides at the END of HELLO and HB payloads: 1 length byte + ASCII text. Units without
+# this feature read only the first bytes of those payloads and ignore the rest, so old and new units mix.
+VER_MAX = 24
+
+
+def _ver_bytes(version):
+    v = str(version).encode()[:VER_MAX]
+    return bytes([len(v)]) + v
+
+
+def _ver_parse(payload, offset):
+    """The version text after `offset` bytes, or None (old unit, or damaged)."""
+    if len(payload) <= offset:
+        return None
+    n = payload[offset]
+    if n == 0 or n > VER_MAX or len(payload) < offset + 1 + n:
+        return None
+    try:
+        return bytes(payload[offset + 1:offset + 1 + n]).decode()
+    except Exception:
+        return None
+
+
+def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0, version=None):
     f = 0 if floor_db is None else int(floor_db * 10)
     b = 255 if batt is None else int(batt)
-    return pack(T_HB, seq, struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens))
+    body = struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens)
+    if version:
+        body += _ver_bytes(version)
+    return pack(T_HB, seq, body)
 
 
 def parse_hb(payload):
@@ -52,9 +78,22 @@ def parse_hb(payload):
     return bool(g), f / 10, batt, charging, sens
 
 
-def pack_hello(seq, batt=None, charging=False):
+def parse_hb_version(payload):
+    """Software version text of the master, or None."""
+    return _ver_parse(payload, 6)
+
+
+def pack_hello(seq, batt=None, charging=False, version=None):
     b = 255 if batt is None else int(batt)
-    return pack(T_HELLO, seq, struct.pack("<BB", b, 1 if charging else 0))
+    body = struct.pack("<BB", b, 1 if charging else 0)
+    if version:
+        body += _ver_bytes(version)
+    return pack(T_HELLO, seq, body)
+
+
+def parse_hello_version(payload):
+    """Software version text of the slave, or None."""
+    return _ver_parse(payload, 2)
 
 
 def parse_hello(payload):

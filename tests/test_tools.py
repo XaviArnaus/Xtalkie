@@ -107,12 +107,16 @@ for d in ("lib", "tools"):
     for dp, dn, fn in os.walk(os.path.join(ROOT, d)):
         dn[:] = [x for x in dn if x != "__pycache__"]
         files += [f for f in fn if not f.endswith(".pyc")]
-expected = len(files) + 2 + 1                       # + main.py, README.md, config.json
+expected = len(files) + 2 + 1                       # + main.py, README.md, config.json (+ the build stamp, below)
 p = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "slave", "--ssid", "x", "--password", "y" * 8,
                     "--night", "--clean", "--dry-run"], capture_output=True, text=True)
 copies = p.stdout.count("fs cp")
+stamped = any("fs cp" in l and l.endswith(":lib/_build.py") for l in p.stdout.splitlines())
+expected += 1 if stamped else 0                     # the stamp is one more copy when git is available
 check(p.returncode == 0 and copies == expected and "__pycache__" not in p.stdout,
       "pc/deploy.py plans %d file copies (expected %d), no __pycache__" % (copies, expected))
+check("build stamp:" in p.stdout and (stamped or "fs rm :lib/_build.py" in p.stdout),
+      "deploy.py stamps the commit on the board (or removes an old stamp when git is missing)")
 p2 = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "play", "--dry-run"], capture_output=True, text=True)
 check(p2.returncode == 0 and '"role": "play"' in p2.stdout, "pc/deploy.py accepts the play role")
 check('"auto_reboot": true' in p.stdout and "fs rm :board.py" in p.stdout, "deploy.py --night writes auto_reboot and --clean removes the old files")
