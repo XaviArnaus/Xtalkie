@@ -114,6 +114,9 @@ Role `idle` starts nothing: a clean board for the tools. Role `loopback` tests e
 
 ## Using it
 
+Every button press on every screen of every role is listed in [docs/BEHAVIOUR.md](docs/BEHAVIOUR.md); the first test on
+real boards in [docs/HARDWARE_TEST.md](docs/HARDWARE_TEST.md). The summary:
+
 The BOOT button, and the panel is dark unless something is shown.
 - **tap**: status (link icon, battery of this unit and of the other unit), 10 s. On the child unit the bottom line says
   how it started (`STARTED BY A PERSON`, `RESTART: CRASH X2`, ...). On the parent unit an amber `CHILD RESTARTED` line
