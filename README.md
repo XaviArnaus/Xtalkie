@@ -1,4 +1,4 @@
-# babymon -- baby monitor on the Waveshare ESP32-S3-Touch-AMOLED-1.8 (MicroPython)
+# Xtalkie -- baby monitor on the Waveshare ESP32-S3-Touch-AMOLED-1.8 (MicroPython)
 
 Two boards: a **master** in the child's room (listens, decides with a snore-aware gate, streams when something
 needs attention) and a **slave** with the parent (plays the audio, shows a bell, alarms if the link is lost).

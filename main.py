@@ -33,7 +33,7 @@ def _warn_legacy():
 def main():
     cfg = config.load()
     role = cfg["role"]
-    print("babymon: role '%s'" % role)
+    print("xtalkie: role '%s'" % role)
     if role == "idle":
         print("idle: nothing started (use this role to run the tools on a clean board)")
         return

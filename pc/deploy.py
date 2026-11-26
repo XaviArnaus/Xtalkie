@@ -2,8 +2,8 @@
 """Copy the project to a board (main.py, README.md, lib/, tools/) and write its /config.json.
 
     python deploy.py COM5 loopback
-    python deploy.py COM5 master --ssid babymon --password MySecret123
-    python deploy.py /dev/ttyACM0 slave --ssid babymon --password MySecret123 --night
+    python deploy.py COM5 master --ssid xtalkie --password MySecret123
+    python deploy.py /dev/ttyACM0 slave --ssid xtalkie --password MySecret123 --night
     python deploy.py COM5 slave --clean        (also deletes the files of the old flat layout)
 
 Close Thonny first (only one program can use the serial port). Needs:  pip install mpremote

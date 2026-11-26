@@ -11,7 +11,7 @@ DEFAULTS = {
     "log": True,                 # keep /events.csv on the board (alerts, link events, per-minute summary)
     "wifi": {
         "mode": "auto",          # auto: master = own access point, slave = joins it; or "ap" / "sta"
-        "ssid": "babymon",
+        "ssid": "xtalkie",
         "password": "change-me-please",   # WPA2 needs at least 8 characters: CHANGE IT
         "channel": 6,
         "master_ip": "192.168.4.1",       # where the slave finds the master
