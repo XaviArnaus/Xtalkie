@@ -4,7 +4,7 @@
 # Screen policy (the panel is dark unless one of these is active):
 #   STATUS    BOOT tap: link icon + battery of this unit and of the other one, for status_s seconds
 #   ALARM     (parent unit) voice / alert audio is playing: full-screen flashing bell, until dismissed
-#   LINKLOST  (parent unit) no signal from the child unit: flashing cross; BOOT mutes the beeps
+#   LINKLOST  (parent unit) no signal from the child unit: flashing cross; BOOT acknowledges: the beeps stop until the link changes
 #   MENU      BOOT long press (parent unit): TEST LIVE / TEST ALARM / EXIT; tap = next, hold = select
 #   TEST      live test: the child unit streams its microphone for test_s seconds, level bar + packet count
 import time
@@ -48,7 +48,7 @@ class Hud:
         self.alert_active = False
         self._dismissed = False
         self._hold_until = 0
-        self.muted_until = None
+        self.acked = False                           # a person pressed BOOT while the link is down: no more beeps until the link changes
         self.idx = 0
         self.switch = None                           # the role switch in progress (ui/menu.py RoleSwitch)
         self.test = None
@@ -96,7 +96,19 @@ class Hud:
             return None, False
 
     def muted(self, now):
-        return self.muted_until is not None and time.ticks_diff(self.muted_until, now) > 0
+        """True once the no-link alarm was acknowledged; it ends when the link comes back (or goes down again)."""
+        return self.acked
+
+    def silence_requested(self):
+        """Called by the parent's beep loop between tones: BOOT held down while the link is down = acknowledge now,
+        so a press made during the (blocking) beeps is not lost. True = stop beeping."""
+        try:
+            if self.is_parent and not self.link_ok and self.btn.value() == 0:
+                self.acked = True
+                return True
+        except Exception:
+            pass
+        return False
 
     def _expired(self, now, t):
         return time.ticks_diff(now, t) >= 0
@@ -109,8 +121,8 @@ class Hud:
             was = self.link_ok
             self.link_ok = up
             now = time.ticks_ms()
+            self.acked = False                       # every change of the link starts a new alarm cycle
             if up:
-                self.muted_until = None
                 if self.state in (LINKLOST, OFF) and self.is_parent:
                     self._go(STATUS, now, self.u["status_s"] * 1000)
             elif self.is_parent and was:
@@ -262,6 +274,8 @@ class Hud:
     def _on_button(self, ev, now):
         s = self.state
         u = self.u
+        if self.is_parent and not self.link_ok:
+            self.acked = True                        # any press while the link is down silences the beeps (the screen does what it always did)
         if s == OFF or s == BOOT:
             if ev == "long" and self.is_parent:
                 self.idx = 0
@@ -280,7 +294,6 @@ class Hud:
             self._dismissed = True
             self._go(OFF, now, None)
         elif s == LINKLOST:
-            self.muted_until = time.ticks_add(now, u["mute_s"] * 1000)
             self._go(OFF, now, None)
         elif s == MENU:
             if ev == "short":
@@ -346,8 +359,8 @@ class Hud:
             ev = self._button(now)
             if ev and (self.display is not None):
                 self._on_button(ev, now)
-            elif ev and self.state == LINKLOST:
-                self.muted_until = time.ticks_add(now, self.u["mute_s"] * 1000)
+            elif ev and self.is_parent and not self.link_ok:
+                self.acked = True
             if self.display is None:
                 return
             s = self.state
@@ -413,6 +426,9 @@ class NullHud:
         return None, False
 
     def muted(self, now):
+        return False
+
+    def silence_requested(self):
         return False
 
     def on_link(self, up):

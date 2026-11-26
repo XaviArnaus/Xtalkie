@@ -14,9 +14,9 @@ serial output marked **[send]**.
 - [ ] Both boards on USB, Thonny closed. Deploy (same SSID and password on both; `--night` only for step 12):
   `python pc/deploy.py <port> master --ssid xtalkie --password <8+ chars>` and the same with `slave`.
   (The default WiFi name is now `xtalkie`. A board whose old `config.json` still says `babymon` would not find the other one: deploy rewrites it.)
-- [ ] `python pc/versions.py` lists both boards as `0.6.0 <commit>` with roles master and slave (it restarts them afterwards).
+- [ ] `python pc/versions.py` lists both boards as `0.6.x <commit>` with roles master and slave (it restarts them afterwards).
 - [ ] Open Thonny on one board, press Stop, then Ctrl+D in the shell (soft reboot) and copy everything it prints. **[send]**
-  Look for: `xtalkie 0.6.0 ...: role`, the `[boot] last run ended: ...; reset cause: ...; started by a person: ...; crashes in a row: ...`
+  Look for: `xtalkie 0.6.x ...: role`, the `[boot] last run ended: ...; reset cause: ...; started by a person: ...; crashes in a row: ...`
   line, four `[boot] +NNN ms` step lines, `[net]` lines, `[disk]`.
   Do the same for the other board. A soft reboot may not look like a power-on: that is expected and is part of what we learn.
 
@@ -24,7 +24,7 @@ serial output marked **[send]**.
 
 Switch the PARENT off and on with its power switch.
 
-- [ ] Start-up screen shows XTALKIE, `0.6.0 <commit>`, PARENT UNIT, and CONFIG / AUDIO / NETWORK / READY ticking green one by one.
+- [ ] Start-up screen shows XTALKIE, `0.6.x <commit>`, PARENT UNIT, and CONFIG / AUDIO / NETWORK / READY ticking green one by one.
 - [ ] NETWORK shows amber SEARCHING (CHILD still off) and the screen does not freeze for 15 s.
 - [ ] One short beep at READY. Amber hint `HOLD BUTTON 2 S: CHOOSE ROLE` appears for about 3 s, then goes.
 - [ ] After about 4 s more: the status screen (NO LINK, red cross), then dark. No alarm beeps (no contact yet).
@@ -41,7 +41,7 @@ Switch the PARENT off and on with its power switch.
 
 ## 3. Link, versions, restart report (both on)
 
-- [ ] PARENT shows the status screen when the link comes up: green check, CONNECTED, battery of both units, version `0.6.0 <commit>`.
+- [ ] PARENT shows the status screen when the link comes up: green check, CONNECTED, battery of both units, version `0.6.x <commit>`.
 - [ ] No amber line on either unit (same version). The CHILD status shows `STARTED BY A PERSON` at the bottom.
 - [ ] Press **RESET** on the CHILD, wait for the link: the PARENT shows (tap BOOT if needed) amber `CHILD RESTARTED`, and stays so.
 - [ ] Power-switch the CHILD off and on: the amber `CHILD RESTARTED` line disappears once it reports again.
@@ -64,7 +64,7 @@ Hold BOOT on the PARENT (about 1.5 s), let go.
 
 - [ ] Clap or call near the CHILD: PARENT shows the bell and plays the audio. A tap dismisses the bell, the sound continues.
 - [ ] Snoring-like noise / room noise: no alert (as in `live-test-1`).
-- [ ] Switch the CHILD off: after about 3 s the PARENT shows the red cross and beeps 3 times every 10 s. Tap: screen dark and beeps muted.
+- [ ] Switch the CHILD off: after about 3 s the PARENT shows the red cross and beeps 3 times every 10 s. Tap: screen dark and the beeps stop for good (also if you tap during the beeps, or later on the status screen). Switch the CHILD on, then off again: the full-screen alarm and the beeps start again.
 - [ ] Switch the CHILD on again: the PARENT shows the status screen, beeps stop.
 
 ## 6. Role switch from the menu

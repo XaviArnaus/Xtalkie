@@ -141,8 +141,11 @@ class Audio:
     def write_silence(self):
         self._i2s.write(self._silence)
 
-    def beep(self, n=3, hz=880, tone_frames=8, gap_frames=6, amp=None):
-        """Alarm: n short beeps on the speaker (opens and closes I2S itself); as loud as the volume level."""
+    def beep(self, n=3, hz=880, tone_frames=8, gap_frames=6, amp=None, lead_frames=15, abort=None):
+        """Alarm: n short beeps on the speaker (opens and closes I2S itself); as loud as the volume level.
+        lead_frames of silence (20 ms each) after the amplifier is switched on: it needs about 160 ms or more to
+        wake up (seen on the board: a single 160 ms beep was inaudible, the first of three too).
+        abort: optional function, checked once per frame; True = stop at once (a button press during the beeps)."""
         if amp is None:
             amp = max(8000, self.agc_target)
         if self._beep is None or self._beep_amp != amp:
@@ -152,13 +155,31 @@ class Audio:
             self._beep = [struct.pack(_FMT, *samples[k * FRAMES:(k + 1) * FRAMES])
                           for k in range(tone_frames)]
         self.open_tx()
-        self.write_silence()
-        self.set_pa(True)
-        for _ in range(n):
-            for f in self._beep:
-                self.write_payload(f, 1.0)
-            for _ in range(gap_frames):
+        try:
+            self.write_silence()
+            self.set_pa(True)
+            stopped = False
+            for _ in range(lead_frames):
+                if abort and abort():
+                    stopped = True
+                    break
                 self.write_silence()
-        self.write_silence()
-        self.set_pa(False)
-        self.close()
+            for _ in range(0 if stopped else n):
+                for f in self._beep:
+                    if abort and abort():
+                        stopped = True
+                        break
+                    self.write_payload(f, 1.0)
+                if stopped:
+                    break
+                for _ in range(gap_frames):
+                    if abort and abort():
+                        stopped = True
+                        break
+                    self.write_silence()
+                if stopped:
+                    break
+            self.write_silence()
+        finally:
+            self.set_pa(False)
+            self.close()

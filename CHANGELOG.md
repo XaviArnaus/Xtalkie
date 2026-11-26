@@ -3,6 +3,20 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.6.2
+- No-link alarm (found in the first hardware test): a BOOT press now ACKNOWLEDGES it until the link changes. Before, it
+  muted the beeps for 5 minutes and they came back in a loop; a press on the status screen did nothing. Now:
+  any press while the link is down silences the beeps, a press during the beeps stops them at once (the beep loop checks
+  the button), and the beeps return only after the link came back and was lost again (new full-screen alarm).
+  The `ui.mute_s` setting is gone.
+- UNVERIFIED on the boards.
+
+## 0.6.1
+- Fix (found in the first hardware test): the ready beep (a single beep) was inaudible, and the first beep of an alarm
+  too: the speaker amplifier needs more than 160 ms to wake up. `Audio.beep()` now plays 300 ms of silence
+  (`lead_frames=15`) after switching the amplifier on, before the first tone. Every beep starts 300 ms later.
+- UNVERIFIED on the boards: that 300 ms is enough (raise `lead_frames` if the first beep is still weak).
+
 ## 0.6.0
 - The child unit stays dark and silent after ANY automatic restart or crash loop (no chooser, no blink, no beep).
   To avoid "looks bricked":

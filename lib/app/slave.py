@@ -192,7 +192,7 @@ def run(cfg, audio, net, hud=None):
                     last_alarm = now
                     print("[slave] ALARM: no signal from the master")
                     log.write("slave", "alarm")
-                    audio.beep()
+                    audio.beep(abort=hud.silence_requested)      # a BOOT press during the beeps stops them at once
 
             if time.ticks_diff(now, last_min) >= 60000:
                 last_min = now

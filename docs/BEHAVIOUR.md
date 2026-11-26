@@ -21,7 +21,7 @@ commit. (Touch input will replace most of this: see the last section.)
 | Parent unit, dark | status screen | **menu** |
 | Parent unit, status | restart the 10 s timer | **menu** |
 | Parent unit, bell (alert) | dismiss (dark; the sound goes on) | dismiss |
-| Parent unit, no link | mute the beeps for 5 min, dark | same |
+| Parent unit, no link | acknowledge: beeps stop until the link changes, dark | same |
 | Menu | next item | select the item |
 | TEST LIVE running | back to the menu | back to the menu |
 | TEST ALARM running | dark | dark |
@@ -70,12 +70,12 @@ The loopback role behaves like the parent unit on one board.
 |---|---|---|
 | Link comes up (first time, or after a loss) | status screen 10 s | none |
 | Child calls / alert | **bell**, until dismissed or 10 s after the sound ends | the child's audio |
-| Link lost (3 s without a packet) | **red cross: NO LINK**, stays | 3 beeps every 10 s |
+| Link lost (3 s without a packet) | **red cross: NO LINK**, stays | 3 beeps every 10 s, until acknowledged |
 | Link returns | status screen 10 s | beeps stop |
 | No alarm before the first contact | (power-up with the child unit off: no alarm until it was heard once) | |
 
 - Bell: tap or hold = dismiss the screen only. The audio keeps playing to the end.
-- No link: tap or hold = **mute the beeps for 5 minutes** (the screen goes dark). The mute ends when the link returns.
+- No link: tap or hold = **acknowledge**: the beeps stop and the screen goes dark. Nothing beeps again until the link has come back and been lost once more (then: full-screen alarm and beeps again). A tap on the dark or status screen while the link is down also silences the beeps. A press during the beeps stops them at once.
 - A sound longer than 45 s is cut by the child unit and paused 8 s (stops an acoustic feedback loop).
 
 ### 4.2 Status screen (tap, or the link coming up)
@@ -159,7 +159,6 @@ Nothing is ever drawn while a clip is being recorded. A press during a recording
 | NOT SAVED | 4 s |
 | Bell after the sound ended | 10 s |
 | Link considered lost | 3 s without a packet; beeps every 10 s |
-| Mute after a tap on NO LINK | 5 min |
 | Stream cut / pause | after 45 s / 8 s |
 | Start-up screen "ready" | 4 s; chooser window 3 s; chooser idle 2 min |
 | Play screen off | 2 min |

@@ -130,7 +130,7 @@ The BOOT button, and the panel is dark unless something is shown.
   restarts in the new role. The child unit has no menu on purpose: a toddler cannot switch its role. To change the
   child unit's role, edit `config.json` or run `pc/deploy.py`.
 - **alert** (parent): the screen wakes with a bell while the audio plays; a tap dismisses it.
-- **no link** (parent): cross + beeps; a tap mutes them for 5 minutes.
+- **no link** (parent): cross + beeps; a tap acknowledges: the beeps stop until the link has returned and been lost again.
 - Battery bolt = external power. `USB` = no battery detected.
 - A stream longer than 45 s is cut for 8 s (an acoustic feedback loop between the two units would otherwise howl).
 
@@ -172,7 +172,7 @@ disp_off/disp_on on this firmware); `battery_check.py` raw power-chip readings; 
 `role`, `port`, `cpu_mhz` (80/160/240, default 160), `auto_reboot`, `watchdog_ms`, `log`; `wifi` {ssid, password, channel, mode, master_ip, power_save (station side: none/min/max)};
 `audio` {mic_gain, volume, playback_gain, agc, agc_max_gain, volume_level}; `gate` {any `dsp/gate.py` setting}; `play` {trig_db, end_db, hang_ms, pre_ms, tail_ms, min_ms, max_s, speed, save, dir, max_total_kb, min_free_kb, idle_off_s};
 `master` {sens_level, max_open_s, cooldown_s, preroll_lead_ms}; `slave` {jitter_frames, link_timeout_ms, ...};
-`ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s, mute_s,
+`ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s,
 boot_screen, boot_beep, ready_s, chooser_window_s, chooser_hold_s, chooser_timeout_s, crash_limit}.
 Settings changed from the menu live in `state.json`, not in config.json.
 

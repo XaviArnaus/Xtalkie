@@ -62,7 +62,15 @@ check(cap.has("live test for 6 s") and cap.has("playing LIVE TEST"), "TEST LIVE 
 check(shud.test is not None and shud.test.get("result") is True and shud.test["pkts"] >= 280,
       "live test passes (%s packets of 300)" % (shud.test or {}).get("pkts"))
 check(cap.has("[slave] LINK LOST"), "link loss detected after the master stops")
-check(len(saudio.beeps) == 1 and shud.muted_until is not None, "the no-link beeps are muted by one tap (%d beep)" % len(saudio.beeps))
+check(len(saudio.beeps) == 1 and shud.acked, "the no-link beeps stop for good after one tap (%d beep)" % len(saudio.beeps))
+shud.on_link(True)
+check(not shud.acked and not shud.muted(0), "the link coming back clears the acknowledgement")
+shud.on_link(False)
+check(shud.state == ui.LINKLOST and not shud.muted(0), "losing the link again starts a new alarm: full screen, beeps allowed")
+shud.state = ui.OFF
+shud._on_button("short", 0)
+check(shud.acked and shud.muted(0), "a press on the dark / status screen while the link is down also silences the beeps")
+check(not shud.silence_requested() or shud.acked, "silence_requested only reacts to the button")
 check(shud.peer == (76, True) and mhud.peer == (76, True), "each unit sees the other's battery %s / %s" % (shud.peer, mhud.peer))
 import version
 check(shud.peer_version == version.full() and mhud.peer_version == version.full(),
