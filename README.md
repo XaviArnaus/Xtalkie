@@ -20,11 +20,11 @@ lib/                 everything else; each layer only uses the layers above it i
     __init__.py        pin map, constants, the shared I2C bus      (import board)
     audio.py           I2S + ES8311: capture frames, play frames, beep, automatic gain
     display.py         TCA9554 + SH8601: panel power/reset, show / hide by brightness
-  helpers/           config.py (config.json + state.json), log.py (rotating log), watchdog.py
+  helpers/           config.py (config.json + state.json), log.py (rotating log), watchdog.py, clips.py (WAV clips, capped)
   net/               link.py (WiFi access point / station + UDP), proto.py (wire protocol)
-  dsp/               gate.py (the detection algorithm; no hardware access)
-  ui/                gfx.py (font + icons), screens.py (the screens), hud.py (button, battery, menu, test mode)
-  app/               master.py (child room), slave.py (parent)
+  dsp/               gate.py (the detection algorithm), clipper.py (level trigger for the play mode), effects.py (speed); no hardware access
+  ui/                gfx.py (font + icons), screens.py (the screens), hud.py (button, battery, menu, test mode), playui.py (play screen)
+  app/               master.py (child room), slave.py (parent), play.py (voice game)
 tools/               run by hand from Thonny (never at boot)
   ui_demo.py  screen_probe.py  battery_check.py  disk.py  record_raw.py  cleanup_old.py
 pc/                  runs on the computer, not on the board
@@ -88,6 +88,31 @@ The BOOT button, and the panel is dark unless something is shown.
 - Battery bolt = external power. `USB` = no battery detected.
 - A stream longer than 45 s is cut for 8 s (an acoustic feedback loop between the two units would otherwise howl).
 
+## Play mode (the voice game, and a way to collect voice clips)
+
+One board, no network. She speaks, the device plays it back to her, and every clip is kept as a WAV file for later
+analysis. The clips use the same microphone chain (same mic gain) as the monitor, so they are directly comparable
+with what the monitor hears at night.
+
+**Switch a board to it** (either board; it replaces the monitor role on that board while it runs):
+`python pc/deploy.py <port> play`, or in Thonny open `/config.json` on the board, set `"role": "play"` and reset.
+**Switch back before the night:** set the role back to `master` or `slave` (or deploy again) and reset.
+
+What she sees: a green ring and "SPEAK" while it listens, a blue disc and "LISTEN" while it plays her voice back,
+and the number of clips kept. The screen switches itself off after `idle_off_s` without a sound. It is never drawn
+while a clip is being recorded (a draw would punch a hole in the recording).
+
+Clips: `/clips/c0001_2.4s.wav`, `c0002_0.9s.wav`, ... (16-bit mono 16 kHz, plays on any computer). At most
+`max_total_kb` (6000 KB, about 3 minutes) are kept: the oldest clips are deleted first. If the flash is short
+for any other reason, nothing is saved and no clip is deleted. Copy them to the computer with Thonny (View > Files,
+right-click `/clips` > Download) or `mpremote connect <port> fs cp -r :clips .` (a recent mpremote), and delete them
+from the board afterwards if you want room for more (`mpremote connect <port> fs rm -r :clips`).
+The clips stay on the board's flash; nothing leaves it unless you copy it.
+
+Tuning (`play` in config.json): `trig_db` (12) how far above the room a sound must be to start a clip, lower it
+for whispers; `hang_ms` (800) the pause that ends a clip; `speed` 1.4 makes her voice a chipmunk, 0.75 a giant;
+`"save": false` plays only, keeps nothing.
+
 ## Checks and diagnostics (`tools/`, with config.json `{"role": "idle"}` and a reset)
 
 `ui_demo.py` every screen and the battery; `screen_probe.py` which panel switch-on sequence works (found: do not use
@@ -97,7 +122,7 @@ disp_off/disp_on on this firmware); `battery_check.py` raw power-chip readings; 
 ## Configuration (`config.json` overrides `lib/helpers/config.py`; only the keys you set are replaced)
 
 `role`, `port`, `cpu_mhz` (80/160/240, default 160), `auto_reboot`, `watchdog_ms`, `log`; `wifi` {ssid, password, channel, mode, master_ip, power_save (station side: none/min/max)};
-`audio` {mic_gain, volume, playback_gain, agc, agc_max_gain, volume_level}; `gate` {any `dsp/gate.py` setting};
+`audio` {mic_gain, volume, playback_gain, agc, agc_max_gain, volume_level}; `gate` {any `dsp/gate.py` setting}; `play` {trig_db, end_db, hang_ms, pre_ms, tail_ms, min_ms, max_s, speed, save, dir, max_total_kb, min_free_kb, idle_off_s};
 `master` {sens_level, max_open_s, cooldown_s, preroll_lead_ms}; `slave` {jitter_frames, link_timeout_ms, ...};
 `ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s, mute_s}.
 Settings changed from the menu live in `state.json`, not in config.json.

@@ -73,3 +73,20 @@ def draw_test(g, remaining, pkts, level_db, result):
             g.cross(184, 190, 70, WHITE)
         g.text_c("AUDIO OK" if ok else "NO AUDIO", 300, 6, GREEN if ok else RED)
         g.text_c("PKT %d" % pkts, 370, 4, GRAY)
+
+
+CYAN = (0, 170, 255)
+
+
+def draw_play(g, state, clips):
+    """The play mode: a green ring while it listens, a blue disc while it plays your voice back."""
+    g.clear(BLACK)
+    if state == "playing":
+        g.circle(184, 170, 100, CYAN)
+        g.text_c("LISTEN", 300, 6, CYAN)
+    else:
+        g.circle(184, 170, 100, GREEN)
+        g.circle(184, 170, 78, BLACK)
+        g.circle(184, 170, 28, GREEN)
+        g.text_c("SPEAK", 300, 6, GREEN)
+    g.text_c("CLIPS %d" % clips, 400, 3, GRAY)

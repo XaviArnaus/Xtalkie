@@ -3,7 +3,7 @@
 import json
 
 DEFAULTS = {
-    "role": "loopback",          # master (child room) | slave (parent) | loopback (test on one board)
+    "role": "loopback",          # master (child room) | slave (parent) | loopback (test on one board) | play (voice game)
     "port": 4747,
     "cpu_mhz": 160,              # 80 / 160 / 240. Lower = less battery; 160 leaves plenty of headroom for the audio loop
     "auto_reboot": False,        # True for unattended use: restart after a crash AND on a hang (watchdog)
@@ -37,6 +37,21 @@ DEFAULTS = {
                "sens_level": 3,      # 1 (least sensitive) .. 5 (most); the parent unit's MIC menu changes it
                "max_open_s": 45,     # a stream longer than this is cut (feedback loop?), then a short pause
                "cooldown_s": 8},
+    "play": {                    # the voice game (role "play"): speak, hear yourself, every clip is kept
+        "trig_db": 12.0,         # a sound this far above the room floor starts a clip
+        "end_db": 6.0,           # ... and a clip ends after hang_ms below floor + end_db
+        "hang_ms": 800,
+        "pre_ms": 240,           # kept from before the trigger, so no first syllable is cut
+        "tail_ms": 300,          # kept after the last sound
+        "min_ms": 300,           # shorter sounds (clicks) are ignored
+        "max_s": 10,             # a longer sound is cut here
+        "speed": 1.0,            # playback speed: 1.0 as spoken, 1.4 chipmunk, 0.75 deep
+        "save": True,            # keep every clip as /clips/cNNNN_<seconds>s.wav
+        "dir": "/clips",
+        "max_total_kb": 6000,    # the oldest clips are deleted beyond this (6000 KB = about 3 minutes of audio)
+        "min_free_kb": 2500,     # nothing is saved if the flash would drop below this
+        "idle_off_s": 120,       # screen off after this long without a clip (0 = never)
+    },
     "slave": {"jitter_frames": 5, "link_timeout_ms": 3000, "alarm_period_ms": 10000,
               "alarm_before_first_link": False, "verbose": True},
 }

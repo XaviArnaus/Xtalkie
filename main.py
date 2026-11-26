@@ -64,6 +64,14 @@ def main():
         free_kb = -1
     log.write("boot", "role=%s,free_kb=%d" % (role, free_kb))
 
+    if role == "play":
+        from app import play
+        if cfg["auto_reboot"]:
+            from helpers import watchdog
+            watchdog.start(cfg["watchdog_ms"])
+        play.run(cfg, audio)
+        return
+
     import board
     from ui.hud import Hud
     hud = Hud(cfg, role, board.i2c())

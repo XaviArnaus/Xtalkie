@@ -26,7 +26,7 @@ DIRS = ["lib", "tools"]
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", help="serial port of the board, e.g. COM5 or /dev/ttyACM0")
-    ap.add_argument("role", choices=["master", "slave", "loopback", "idle"])
+    ap.add_argument("role", choices=["master", "slave", "loopback", "play", "idle"])
     ap.add_argument("--ssid")
     ap.add_argument("--password")
     ap.add_argument("--night", action="store_true",
