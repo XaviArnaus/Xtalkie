@@ -138,7 +138,7 @@ from ui import screens as S
 
 cfgfile = os.path.join(tmp, "unit.json")
 with open(cfgfile, "w") as f:
-    json.dump({"role": "master", "wifi": {"password": "keep-me-1234"}}, f)
+    json.dump({"role": "child", "wifi": {"password": "keep-me-1234"}}, f)
 _save = config.save_role
 config.save_role = lambda role, path=cfgfile: _save(role, path)
 
@@ -158,48 +158,48 @@ _menu = S.draw_menu
 S.draw_menu = lambda g, items, idx, title="MENU": (titles.append(title), _menu(g, items, idx, title))[1]
 
 d, g = panel()
-# list: MASTER, SLAVE, PLAY, BACK. current = master (cursor 0). tap, hold -> SLAVE asks; hold = yes
+# list: CHILD, PARENT, PLAY, BACK. current = child (cursor 0). tap, hold -> PARENT asks; hold = yes
 machine.RESETS.clear()
 machine.RTC.MEM["b"] = b""
-r = chooser.choose(d, g, 60, "master", "hold", btn=Script(["short", "long", "long"]))
+r = chooser.choose(d, g, 60, "child", "hold", btn=Script(["short", "long", "long"]))
 data = json.load(open(cfgfile))
-check(data == {"role": "slave", "wifi": {"password": "keep-me-1234"}} and len(machine.RESETS) == 1 and bootinfo.read() == bootinfo.MANUAL,
-      "chooser: SLAVE + yes writes config.json (password kept), restarts, marked as started by a person")
+check(data == {"role": "parent", "wifi": {"password": "keep-me-1234"}} and len(machine.RESETS) == 1 and bootinfo.read() == bootinfo.MANUAL,
+      "chooser: PARENT + yes writes config.json (password kept), restarts, marked as started by a person")
 check(titles[0] == "ROLE", "the list is titled ROLE when you asked for it")
 
 machine.RESETS.clear()
 with open(cfgfile, "w") as f:
-    json.dump({"role": "slave"}, f)
-r = chooser.choose(d, g, 60, "slave", "hold", btn=Script(["long"]))
-check(r is True and not machine.RESETS and json.load(open(cfgfile))["role"] == "slave", "hold on the current role: carry on, nothing changes")
-r = chooser.choose(d, g, 60, "slave", "hold", btn=Script(["short", "short", "long"]))
+    json.dump({"role": "parent"}, f)
+r = chooser.choose(d, g, 60, "parent", "hold", btn=Script(["long"]))
+check(r is True and not machine.RESETS and json.load(open(cfgfile))["role"] == "parent", "hold on the current role: carry on, nothing changes")
+r = chooser.choose(d, g, 60, "parent", "hold", btn=Script(["short", "short", "long"]))
 check(r is True and not machine.RESETS, "BACK: carry on, nothing changes")
-r = chooser.choose(d, g, 60, "slave", "hold", btn=Script(["short", "long",       # PLAY chosen: asks
+r = chooser.choose(d, g, 60, "parent", "hold", btn=Script(["short", "long",       # PLAY chosen: asks
                                                            "short",              # tap = NO: back to the list
                                                            "short", "long"]))    # PLAY -> BACK, leave
-check(r is True and not machine.RESETS and json.load(open(cfgfile))["role"] == "slave",
+check(r is True and not machine.RESETS and json.load(open(cfgfile))["role"] == "parent",
       "tap = NO at the confirmation changes nothing")
 titles.clear()
-chooser.choose(d, g, 60, "master", "crash", btn=Script(["long"]))
+chooser.choose(d, g, 60, "child", "crash", btn=Script(["long"]))
 check(titles and titles[0] == "CRASHES", "after a crash loop the list says CRASHES")
 
 real_ticks = time.ticks_ms
 clk = [0]
 time.ticks_ms = lambda: clk.__setitem__(0, clk[0] + 900) or clk[0]
-r = chooser.choose(d, g, 60, "slave", "crash", timeout_s=120, btn=Script([]))
+r = chooser.choose(d, g, 60, "parent", "crash", timeout_s=120, btn=Script([]))
 time.ticks_ms = real_ticks
 check(r is True and not machine.RESETS, "nobody answers: after the timeout the unit starts with its current role")
 
 config.save_role = lambda role, path=cfgfile: (False, "no space")
 with open(cfgfile, "w") as f:
-    json.dump({"role": "slave"}, f)
+    json.dump({"role": "parent"}, f)
 clk[0] = 0
 time.ticks_ms = lambda: clk.__setitem__(0, clk[0] + 900) or clk[0]
-r = chooser.choose(d, g, 60, "slave", "hold", timeout_s=30, btn=Script(["short", "long", "long"]))
+r = chooser.choose(d, g, 60, "parent", "hold", timeout_s=30, btn=Script(["short", "long", "long"]))
 time.ticks_ms = real_ticks
-check(r is True and not machine.RESETS and json.load(open(cfgfile))["role"] == "slave",
+check(r is True and not machine.RESETS and json.load(open(cfgfile))["role"] == "parent",
       "a failed write: NOT SAVED, no restart, and the unit starts as before")
 config.save_role = lambda role, path=cfgfile: _save(role, path)
-check(chooser.choose(None, None, 60, "slave", "hold") is True, "no screen: nothing to choose with, carry on")
+check(chooser.choose(None, None, 60, "parent", "hold") is True, "no screen: nothing to choose with, carry on")
 S.draw_menu = _menu
 finish()

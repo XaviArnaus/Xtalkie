@@ -36,7 +36,7 @@ commit. (Touch input will replace most of this: see the last section.)
 
 Every menu, list and confirmation goes dark by itself after **20 s** without a press (4 s for "NOT SAVED").
 
-## 3. Child unit (role `master`, in the child's room)
+## 3. Child unit (role `child`, in the child's room)
 
 It must never light the room or make a sound by itself. It listens, decides with the gate, and streams to the parent.
 
@@ -61,7 +61,7 @@ To change its role: power-cycle it and use the start-up chooser (section 5), edi
 
 If it does not answer at all (no tap response, no link on the parent) for a minute, connect it to the computer.
 
-## 4. Parent unit (role `slave`) and the loopback test role
+## 4. Parent unit (role `parent`) and the loopback test role
 
 The loopback role behaves like the parent unit on one board.
 
@@ -103,7 +103,7 @@ Six items: tap = next, hold = select. Idle for 20 s: the screen goes dark.
 
 ### 4.4 ROLE (also in the play menu and the start-up chooser)
 
-1. **List**: MASTER, SLAVE, PLAY, BACK. The cursor starts on the current role. Tap = next, hold = choose.
+1. **List**: CHILD, PARENT, PLAY, BACK. The cursor starts on the current role. Tap = next, hold = choose.
    Choosing the current role or BACK goes back (to the menu; at start-up: carries on starting).
 2. **Confirmation** `SWITCH TO <role> / THE UNIT RESTARTS`: **hold = YES**, **tap = NO** (back to the list).
 3. YES: only the `role` key of `config.json` is changed (old file kept as `config.json.bak`), the screen says

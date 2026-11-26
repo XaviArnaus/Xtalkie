@@ -21,7 +21,7 @@ def main():
     for p in ports:
         usb = "USB %04X:%04X" % (p.vid, p.pid) if p.vid is not None else "not USB"
         print("%-28s %-14s %s" % (p.device, usb, p.description))
-    print("\nUse the board's device name as <port>, e.g.:  python pc/deploy.py %s master --ssid xtalkie --password ..."
+    print("\nUse the board's device name as <port>, e.g.:  python pc/deploy.py %s child --ssid xtalkie --password ..."
           % ports[0].device)
 
 

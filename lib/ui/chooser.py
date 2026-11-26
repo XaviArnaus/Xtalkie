@@ -4,7 +4,7 @@
 #   - hold BOOT for about 2 s while the start-up screen shows "HOLD BUTTON 2 S: CHOOSE ROLE"
 #   - after the unit crashed several times in a row (crash loop): the chooser appears instead of restarting the
 #     same role once more, even on the child unit (a unit that keeps crashing is not watching the child anyway)
-# It is the same list as the ROLE menu: MASTER / SLAVE / PLAY / BACK, then a confirmation (hold = yes, tap = no).
+# It is the same list as the ROLE menu: CHILD / PARENT / PLAY / BACK, then a confirmation (hold = yes, tap = no).
 # Choosing the role the unit already has, BACK, or doing nothing for `timeout_s` returns, and the start goes on with
 # the role in config.json. A changed role is written to config.json and the unit restarts.
 import time

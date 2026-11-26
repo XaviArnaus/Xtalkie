@@ -30,7 +30,7 @@ class Hud:
         u = cfg["ui"]
         self.u = u
         self.role = role
-        self.is_parent = role != "master"            # loopback behaves like the parent unit
+        self.is_parent = role != "child"            # loopback behaves like the parent unit
         self.bat = AXP2101(i2c)
         self._binfo = None
         self._btime = 0

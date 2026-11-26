@@ -1,9 +1,9 @@
-# app/master.py -- the child-room unit: listen, decide with the gate, stream audio when it opens.
+# app/child.py -- the child-room unit: listen, decide with the gate, stream audio when it opens.
 #
 # Every 20 ms frame goes through Gate. The last RING frames are kept, so when the gate opens the
 # audio from just before the alert (pre-roll) is sent first and no word is clipped. Packets go through
-# a small queue that is drained a few per frame, so a pre-roll burst cannot overflow the slave's
-# receive buffer. The slave's address is learned from its HELLO packets.
+# a small queue that is drained a few per frame, so a pre-roll burst cannot overflow the parent's
+# receive buffer. The parent's address is learned from its HELLO packets.
 #
 # In loopback mode (one board, no network) the "sent" packets are collected and, when the stream ends,
 # played back on the speaker, so the whole send path can be tested on a single board.
@@ -50,7 +50,7 @@ def _loop_play(audio, packets, gain):
 
 def run(cfg, audio, net, hud=None):
     hud = hud or NullHud()
-    mc = cfg["master"]
+    mc = cfg["child"]
     verbose = mc["verbose"]
     lead = mc["preroll_lead_ms"] // 20
     hb_ms = mc["hb_ms"]
@@ -101,7 +101,7 @@ def run(cfg, audio, net, hud=None):
         hud.set_actions(alarm_preview=lambda: audio.beep(), **volume_actions(audio))
         hud.set_actions(sens_step=lambda: apply_sens(sens % 5 + 1), get_sens=lambda: sens)
     audio.open_rx()
-    print("[master] listening%s" % (" (loopback test)" if loop else ""))
+    print("[child] listening%s" % (" (loopback test)" if loop else ""))
     try:
         while True:
             payload, lvl, zcr = audio.read_frame()
@@ -129,12 +129,12 @@ def run(cfg, audio, net, hud=None):
                         n_ignored += 1
                     elif not verdict.startswith("ignored") and not verdict.startswith("noise"):
                         n_alerted += 1
-                        log.write("master", "event,%.2f,%.1f,%.1f,%s,%s" % (
+                        log.write("child", "event,%.2f,%.1f,%.1f,%s,%s" % (
                             d_s, pk, mn, ("%d" % z) if z is not None else "-", verdict))
 
             if gate.absorbed != absorbed_seen:
                 absorbed_seen = gate.absorbed
-                log.write("master", "style changed")
+                log.write("child", "style changed")
                 if verbose:
                     print("--- snore style changed: learned the new one ---")
             forced = live_until is not None and time.ticks_diff(live_until, now) > 0
@@ -149,7 +149,7 @@ def run(cfg, audio, net, hud=None):
                 if gate.gate_open and not streaming:        # the sound is still going on after the pause
                     streaming = True
                     open_since = now
-                    log.write("master", "resume after pause")
+                    log.write("child", "resume after pause")
             if ev == "open":
                 opens += 1
                 if not locked:
@@ -165,14 +165,14 @@ def run(cfg, audio, net, hud=None):
                         hud.on_alert_start()
                     if verbose:
                         print("*** OPEN (%s), %d pre-roll frames" % (gate.reason, n))
-                log.write("master", "open,%s%s" % (gate.reason, ",paused" if locked else ""))
+                log.write("child", "open,%s%s" % (gate.reason, ",paused" if locked else ""))
             if streaming and time.ticks_diff(now, open_since) > max_open_ms:
                 streaming = False                             # too long: probably the speaker feeding the mic
                 outq.append(proto.pack(proto.T_END, seq))
                 seq += 1
                 lockout_until = time.ticks_add(now, cooldown_ms)
-                print("[master] stream longer than %d s: paused %d s (feedback?)" % (max_open_ms // 1000, cooldown_ms // 1000))
-                log.write("master", "stream cut after max_open")
+                print("[child] stream longer than %d s: paused %d s (feedback?)" % (max_open_ms // 1000, cooldown_ms // 1000))
+                log.write("child", "stream cut after max_open")
             if streaming or forced:
                 outq.append(proto.pack(proto.T_AUDIO, seq, payload, proto.F_TEST if forced else 0))
                 seq += 1
@@ -197,8 +197,8 @@ def run(cfg, audio, net, hud=None):
                     info = proto.parse(r[0])
                     if info is not None and info[0] == proto.T_HELLO:
                         if peer != r[1]:
-                            print("[master] slave found at %s:%d" % r[1])
-                            log.write("master", "slave found")
+                            print("[child] parent found at %s:%d" % r[1])
+                            log.write("child", "parent found")
                         peer = r[1]
                         last_hello = now
                         pb = proto.parse_hello(info[3])
@@ -209,16 +209,16 @@ def run(cfg, audio, net, hud=None):
                         cmd, arg = proto.parse_cmd(info[3])
                         if cmd == proto.CMD_LIVE:
                             live_until = time.ticks_add(now, min(max(arg, 1), 60) * 1000)
-                            print("[master] live test for %d s" % min(max(arg, 1), 60))
-                            log.write("master", "live test")
+                            print("[child] live test for %d s" % min(max(arg, 1), 60))
+                            log.write("child", "live test")
                         elif cmd == proto.CMD_SENS and 1 <= arg <= 5:
                             apply_sens(arg)
-                            print("[master] sensitivity level %d (threshold %.0f dB, sharp-sound limit %.0f dB)" % (
+                            print("[child] sensitivity level %d (threshold %.0f dB, sharp-sound limit %.0f dB)" % (
                                 sens, gate.act_db, gate.impact_db))
-                            log.write("master", "sensitivity %d" % sens)
+                            log.write("child", "sensitivity %d" % sens)
                 if peer is not None and time.ticks_diff(now, last_hello) > PEER_TIMEOUT_MS:
-                    print("[master] slave lost")
-                    log.write("master", "slave lost")
+                    print("[child] parent lost")
+                    log.write("child", "parent lost")
                     peer = None
                     hud.on_link(False)
                 if peer is None and outq:
@@ -245,13 +245,13 @@ def run(cfg, audio, net, hud=None):
                 end_pending = False
                 pk = net.take()
                 n = _loop_play(audio, pk, None)
-                print("[master] loopback: played back %d frames" % n)
+                print("[child] loopback: played back %d frames" % n)
                 frame = 0                              # skip the mic start-up silence again
 
             if time.ticks_diff(now, last_min) >= 60000 and gate.floor_db is not None:
                 last_min = now
                 bpct, bext = hud.battery_info(now)
-                log.write("master", "minute,ignored=%d,alerts=%d,floor=%.1f,regime=%d,peer=%d,batt=%s,ext=%d" % (
+                log.write("child", "minute,ignored=%d,alerts=%d,floor=%.1f,regime=%d,peer=%d,batt=%s,ext=%d" % (
                     n_ignored, n_alerted, gate.floor_db, 1 if gate.regime else 0, 0 if peer is None else 1,
                     "?" if bpct is None else bpct, 1 if bext else 0))
                 n_ignored = 0
@@ -263,7 +263,7 @@ def run(cfg, audio, net, hud=None):
 
             if time.ticks_diff(now, last_status) >= STATUS_MS and gate.floor_db is not None:
                 last_status = now
-                print("[master] %4ds  %6.1f dB  floor %6.1f  %-6s opens=%d sent=%d q=%d peer=%s  frame<=%dms" % (
+                print("[child] %4ds  %6.1f dB  floor %6.1f  %-6s opens=%d sent=%d q=%d peer=%s  frame<=%dms" % (
                     frame // 50, lvl, gate.floor_db, gate.state_name, opens, sent, len(outq),
                     "-" if peer is None else ("%s" % (peer[0],)), worst_us // 1000))
                 worst_us = 0

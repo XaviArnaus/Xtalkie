@@ -71,7 +71,7 @@ def volume_actions(audio):
 
 
 class RoleSwitch:
-    """state: "pick" (MASTER / SLAVE / PLAY / BACK) -> "confirm" -> "done" (restart now) or "failed".
+    """state: "pick" (CHILD / PARENT / PLAY / BACK) -> "confirm" -> "done" (restart now) or "failed".
     tap() and hold() return "redraw", "cancel" (leave the role menu) or "reset" (config.json written: restart)."""
 
     def __init__(self, current, save=None):

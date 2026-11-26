@@ -105,7 +105,7 @@ def main():
     boot = bootscr.Boot(shared[0], shared[1], role, version.full(), show, u["brightness"])
     boot.step("CONFIG")
     if u["crash_limit"] and info["crashes"] >= u["crash_limit"]:
-        if role == "master":
+        if role == "child":
             # the child unit NEVER lights the room by itself, not even in a crash loop: the parent unit's "no link"
             # alarm tells that something is wrong. A person power-cycles it (start-up screen + chooser).
             print("[boot] %d crashes in a row: child unit stays dark (power-cycle it to get the start-up screen)" % info["crashes"])
@@ -165,30 +165,30 @@ def main():
 
     if role == "loopback":
         from net.link import LoopbackNet
-        from app import master
+        from app import child
         boot.step("NETWORK", "-")
         _finish_boot(boot, audio, cfg, info, role, shared)
         if cfg["auto_reboot"]:
             from helpers import watchdog
             watchdog.start(cfg["watchdog_ms"])
         hud.hold_boot(ready_ms)
-        master.run(cfg, audio, LoopbackNet(), hud)
-    elif role in ("master", "slave"):
+        child.run(cfg, audio, LoopbackNet(), hud)
+    elif role in ("child", "parent"):
         from net.link import Net
         net = Net(cfg, role)
-        net.start(wait=False)                            # the slave does not wait for the master: its screen and button work at once
+        net.start(wait=False)                            # the parent does not wait for the child: its screen and button work at once
         boot.step("NETWORK", "OK" if net.joined() else "SEARCHING")
         _finish_boot(boot, audio, cfg, info, role, shared)
         if cfg["auto_reboot"]:                           # started after the chooser window: the chooser may wait for minutes
             from helpers import watchdog
             watchdog.start(cfg["watchdog_ms"])
         hud.hold_boot(ready_ms)
-        if role == "master":
-            from app import master
-            master.run(cfg, audio, net, hud)
+        if role == "child":
+            from app import child
+            child.run(cfg, audio, net, hud)
         else:
-            from app import slave
-            slave.run(cfg, audio, net, hud)
+            from app import parent
+            parent.run(cfg, audio, net, hud)
     else:
         print("unknown role: %s" % role)
 

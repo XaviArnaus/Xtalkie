@@ -108,7 +108,7 @@ for d in ("lib", "tools"):
         dn[:] = [x for x in dn if x != "__pycache__"]
         files += [f for f in fn if not f.endswith(".pyc")]
 expected = len(files) + 2 + 1                       # + main.py, README.md, config.json (+ the build stamp, below)
-p = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "slave", "--ssid", "x", "--password", "y" * 8,
+p = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "parent", "--ssid", "x", "--password", "y" * 8,
                     "--night", "--clean", "--dry-run"], capture_output=True, text=True)
 copies = p.stdout.count("fs cp")
 stamped = any("fs cp" in l and l.endswith(":lib/_build.py") for l in p.stdout.splitlines())

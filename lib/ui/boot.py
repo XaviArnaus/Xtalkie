@@ -30,12 +30,12 @@ def open_screen(cfg, i2c):
 
 def should_show(mode, role, manual):
     """Light the start-up screen? "always" / "never" force it. "auto": the parent and test units always show it;
-    the child unit (master) only when a person started it, so a 3 a.m. restart never lights the room."""
+    the child unit only when a person started it, so a 3 a.m. restart never lights the room."""
     if mode == "always":
         return True
     if mode == "never":
         return False
-    return role != "master" or bool(manual)
+    return role != "child" or bool(manual)
 
 
 class Boot:

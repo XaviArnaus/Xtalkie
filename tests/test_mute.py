@@ -7,10 +7,10 @@ patch_time(real=True)
 import machine
 import ui.hud as ui
 import board
-from app import master, slave
+from app import child, parent
 from helpers import config, log
 from net.link import Net
-from sim import Capture, MasterAudio, SlaveAudio, run_pair
+from sim import Capture, ChildAudio, ParentAudio, run_pair
 
 log.enabled = False
 T0 = [time.monotonic()]
@@ -22,7 +22,7 @@ NAMES = {0: "OFF", 1: "STATUS", 2: "ALARM", 3: "LINKLOST", 4: "MENU", 5: "TEST",
 states = []
 orig_go = ui.Hud._go
 def go(self, state, nw, hold):
-    if self.role == "slave":
+    if self.role == "parent":
         states.append(NAMES.get(state, state))
     return orig_go(self, state, nw, hold)
 ui.Hud._go = go
@@ -31,27 +31,27 @@ ui.Hud._go = go
 def cfgfor(port):
     c = config.load("/nonexistent")
     c["port"] = port
-    c["slave"]["alarm_period_ms"] = 3000
-    c["slave"]["link_timeout_ms"] = 3000
+    c["parent"]["alarm_period_ms"] = 3000
+    c["parent"]["link_timeout_ms"] = 3000
     c["ui"].update(alert_hold_s=2, status_s=3)
     return c
 
 
-def run(port, events, stop_s, slave_s, presses, muted=False):
-    """One master + slave run; returns (slave audio, slave hud, captured output)."""
+def run(port, events, stop_s, parent_s, presses, muted=False):
+    """One child + parent run; returns (parent audio, parent hud, captured output)."""
     del states[:]
     PRESSES[:] = presses
     mc, sc = cfgfor(port), cfgfor(port + 10)
-    mnet, snet = Net(mc, "master"), Net(sc, "slave")
+    mnet, snet = Net(mc, "child"), Net(sc, "parent")
     mnet.start(wifi=False)
     snet.start(wifi=False)
-    snet.master_addr = ("127.0.0.1", port)
-    mhud, shud = ui.Hud(mc, "master", board.i2c()), ui.Hud(sc, "slave", board.i2c())
+    snet.child_addr = ("127.0.0.1", port)
+    mhud, shud = ui.Hud(mc, "child", board.i2c()), ui.Hud(sc, "parent", board.i2c())
     shud.sound_off = muted
-    maudio, saudio = MasterAudio(events, stop_s), SlaveAudio()
+    maudio, saudio = ChildAudio(events, stop_s), ParentAudio()
     T0[0] = time.monotonic()
     with Capture() as cap:
-        run_pair(master, slave, mc, sc, maudio, saudio, mhud, shud, mnet, snet, slave_s)
+        run_pair(child, parent, mc, sc, maudio, saudio, mhud, shud, mnet, snet, parent_s)
     return saudio, shud, cap
 
 
@@ -69,7 +69,7 @@ check(saudio.frames == 0, "sound off: no voice is played (%d frames)" % saudio.f
 
 # ---- 3. the gesture: 3 quick taps toggle, slow taps do not; menu taps never count -----------------------------------
 c = cfgfor(47610)
-h = ui.Hud(c, "slave", board.i2c())
+h = ui.Hud(c, "parent", board.i2c())
 h.actions["unmute_beep"] = lambda: beeps.append(1)
 beeps = []
 h.sound_off = False
@@ -94,7 +94,7 @@ h.state = ui.MENU
 for k in range(3):
     h._on_button("short", t + 40000 + k * 200)
 check(not h.sound_off, "taps in the menu only move the cursor")
-m = ui.Hud(cfgfor(47620), "master", board.i2c())
+m = ui.Hud(cfgfor(47620), "child", board.i2c())
 for k in range(3):
     m._on_button("short", t + k * 200)
 check(not m.sound_off, "the child unit has no such gesture")

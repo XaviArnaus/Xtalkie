@@ -16,9 +16,9 @@ class Net:
         self.port = cfg["port"]
         mode = w["mode"]
         if mode == "auto":
-            mode = "ap" if role == "master" else "sta"
+            mode = "ap" if role == "child" else "sta"
         self.mode = mode
-        self.master_addr = (w["master_ip"], self.port)    # where the slave sends its HELLO
+        self.child_addr = (w["child_ip"], self.port)    # where the parent sends its HELLO
         self.wlan = None
         self.sock = None
         self._last_try = 0
@@ -68,7 +68,7 @@ class Net:
         return self.wlan is None or self.mode == "ap" or self.wlan.isconnected()
 
     def start(self, wifi=True, wait=True):
-        """wait=False (the slave at boot): start joining and return at once; ensure() keeps trying and joined()
+        """wait=False (the parent at boot): start joining and return at once; ensure() keeps trying and joined()
         says when it worked. wait=True: wait up to 15 s for the join."""
         if wifi:
             import network
@@ -185,7 +185,7 @@ class Net:
 class LoopbackNet:
     """Stand-in for Net on a single board: packets are collected locally instead of sent."""
     peer = ("loopback", 0)
-    master_addr = peer
+    child_addr = peer
 
     def __init__(self):
         self.packets = []

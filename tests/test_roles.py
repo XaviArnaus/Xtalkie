@@ -36,32 +36,32 @@ def get(path):
 # ---------------------------------------------------------------- config.save_role
 print("-- config.json is changed safely")
 cj = p("config.json")
-put(cj, json.dumps({"role": "slave", "wifi": {"ssid": "home", "password": "secret-pass"}, "auto_reboot": True}))
-check(config.save_role("master", cj) == (True, "ok"), "switching slave -> master works")
+put(cj, json.dumps({"role": "parent", "wifi": {"ssid": "home", "password": "secret-pass"}, "auto_reboot": True}))
+check(config.save_role("child", cj) == (True, "ok"), "switching parent -> child works")
 now_cfg = json.loads(get(cj))
-check(now_cfg == {"role": "master", "wifi": {"ssid": "home", "password": "secret-pass"}, "auto_reboot": True},
+check(now_cfg == {"role": "child", "wifi": {"ssid": "home", "password": "secret-pass"}, "auto_reboot": True},
       "only the role changed, the WiFi settings and everything else stay: %s" % now_cfg)
-check(json.loads(get(cj + ".bak"))["role"] == "slave", "the previous file is kept as config.json.bak")
+check(json.loads(get(cj + ".bak"))["role"] == "parent", "the previous file is kept as config.json.bak")
 check(not os.path.exists(cj + ".new"), "no half-written .new file is left behind")
-check(config.load(cj)["role"] == "master" and config.load(cj)["wifi"]["ssid"] == "home", "config.load reads it back")
+check(config.load(cj)["role"] == "child" and config.load(cj)["wifi"]["ssid"] == "home", "config.load reads it back")
 
 before = get(cj)
 check(config.save_role("loopback", cj)[0] is False and config.save_role("idle", cj)[0] is False and get(cj) == before,
-      "only master / slave / play can be written (loopback and idle cannot, the file is untouched)")
+      "only child / parent / play can be written (loopback and idle cannot, the file is untouched)")
 
 nofile = p("fresh.json")
 check(config.save_role("play", nofile) == (True, "ok") and json.loads(get(nofile)) == {"role": "play"} and not os.path.exists(nofile + ".bak"),
       "no config.json yet: a new one with just the role (nothing to back up)")
 
 bad = p("bad.json")
-put(bad, '{"role": "slave", "wifi": {')
-ok, msg = config.save_role("master", bad)
-check(ok is False and get(bad) == '{"role": "slave", "wifi": {' and not os.path.exists(bad + ".new"),
+put(bad, '{"role": "parent", "wifi": {')
+ok, msg = config.save_role("child", bad)
+check(ok is False and get(bad) == '{"role": "parent", "wifi": {' and not os.path.exists(bad + ".new"),
       "a config.json that cannot be read is never overwritten (%s)" % msg)
 
 # FAT cannot rename onto an existing file: the fallback removes the old file first
 fat = p("fat.json")
-put(fat, json.dumps({"role": "slave", "port": 5000}))
+put(fat, json.dumps({"role": "parent", "port": 5000}))
 real_rename = os.rename
 calls = []
 
@@ -83,7 +83,7 @@ check(ok == (True, "ok") and json.loads(get(fat)) == {"role": "play", "port": 50
 
 # the write fails half way (flash full): the old file stays
 full = p("full.json")
-put(full, json.dumps({"role": "slave"}))
+put(full, json.dumps({"role": "parent"}))
 real_open = builtins.open
 
 
@@ -95,26 +95,26 @@ def broken_open(path, mode="r", *a, **k):
 
 builtins.open = broken_open
 try:
-    ok, msg = config.save_role("master", full)
+    ok, msg = config.save_role("child", full)
 finally:
     builtins.open = real_open
-check(ok is False and json.loads(get(full)) == {"role": "slave"}, "flash full while writing: the old config.json is intact (%s)" % msg)
+check(ok is False and json.loads(get(full)) == {"role": "parent"}, "flash full while writing: the old config.json is intact (%s)" % msg)
 
 # power cut between "remove" and "rename": only .new is left, and load() finds it
 cut = p("cut.json")
-put(cut + ".new", json.dumps({"role": "master", "port": 4747}))
-check(config.load(cut)["role"] == "master", "a role switch cut off in the middle: load() falls back to config.json.new")
-put(cut, json.dumps({"role": "slave"}))
-check(config.load(cut)["role"] == "slave", "... but a normal config.json always wins over a stale .new")
+put(cut + ".new", json.dumps({"role": "child", "port": 4747}))
+check(config.load(cut)["role"] == "child", "a role switch cut off in the middle: load() falls back to config.json.new")
+put(cut, json.dumps({"role": "parent"}))
+check(config.load(cut)["role"] == "parent", "... but a normal config.json always wins over a stale .new")
 
 # ---------------------------------------------------------------- RoleSwitch logic
 print("-- the role switch logic")
 saved = []
-sw = menu.RoleSwitch("slave", save=lambda r: (saved.append(r), (True, "ok"))[1])
-check(sw.labels() == ["MASTER", "SLAVE", "PLAY", "BACK"] and sw.idx == 1, "the list is MASTER / SLAVE / PLAY / BACK, the cursor on the current role")
+sw = menu.RoleSwitch("parent", save=lambda r: (saved.append(r), (True, "ok"))[1])
+check(sw.labels() == ["CHILD", "PARENT", "PLAY", "BACK"] and sw.idx == 1, "the list is CHILD / PARENT / PLAY / BACK, the cursor on the current role")
 check(sw.tap() == "redraw" and sw.idx == 2 and sw.tap() == "redraw" and sw.idx == 3 and sw.tap() == "redraw" and sw.idx == 0,
       "tap steps through the list and wraps")
-check(sw.hold() == "redraw" and sw.state == "confirm" and sw.target == "master", "hold on MASTER asks for confirmation")
+check(sw.hold() == "redraw" and sw.state == "confirm" and sw.target == "child", "hold on CHILD asks for confirmation")
 check(sw.tap() == "redraw" and sw.state == "pick" and sw.target is None and not saved, "tap = NO: back to the list, nothing written")
 sw.idx = 1
 check(sw.hold() == "cancel" and not saved, "hold on the role it already has just leaves")
@@ -124,7 +124,7 @@ sw.idx = 2
 sw.hold()
 check(sw.state == "confirm" and sw.hold() == "reset" and saved == ["play"] and sw.state == "done",
       "hold = YES writes the role and asks for the restart")
-bad_sw = menu.RoleSwitch("master", save=lambda r: (False, "disk full"))
+bad_sw = menu.RoleSwitch("child", save=lambda r: (False, "disk full"))
 bad_sw.idx = 1
 bad_sw.hold()
 check(bad_sw.hold() == "redraw" and bad_sw.state == "failed" and bad_sw.error == "disk full" and bad_sw.tap() == "cancel",
@@ -138,12 +138,12 @@ import ui.hud as ui
 from ui import boot as bootscr
 
 cfgfile = p("unit.json")
-put(cfgfile, json.dumps({"role": "slave", "wifi": {"password": "keep-me-1234"}}))
+put(cfgfile, json.dumps({"role": "parent", "wifi": {"password": "keep-me-1234"}}))
 _save = config.save_role
 config.save_role = lambda role, path=cfgfile: _save(role, path)       # the HUD writes THIS board's config.json
 
 
-def new_hud(role="slave"):
+def new_hud(role="parent"):
     c = config.load("/nonexistent")
     d, g = bootscr.open_screen(c, board.i2c())
     return ui.Hud(c, role, board.i2c(), (d, g))
@@ -164,22 +164,22 @@ check(st == ui.MENU and ui.MENU_ITEMS[h.idx] == "ROLE" and len(ui.MENU_ITEMS) ==
 h._on_button("long", time.ticks_ms())
 check(h.state == ui.ROLE and h.switch.state == "pick", "hold on ROLE opens the role list")
 h._on_button("long", time.ticks_ms())
-check(h.state == ui.MENU, "hold on the current role (SLAVE) just goes back to the menu")
+check(h.state == ui.MENU, "hold on the current role (PARENT) just goes back to the menu")
 h.idx = ui.MENU_ITEMS.index("ROLE")
 h._on_button("long", time.ticks_ms())
-h._on_button("short", time.ticks_ms())             # SLAVE -> PLAY
+h._on_button("short", time.ticks_ms())             # PARENT -> PLAY
 h._on_button("long", time.ticks_ms())              # choose PLAY
 check(h.switch.state == "confirm" and h.switch.target == "play", "choosing PLAY asks: SWITCH TO PLAY MODE")
-check(json.loads(get(cfgfile))["role"] == "slave" and not machine.RESETS, "nothing is written and nothing restarts before the confirmation")
+check(json.loads(get(cfgfile))["role"] == "parent" and not machine.RESETS, "nothing is written and nothing restarts before the confirmation")
 h._on_button("short", time.ticks_ms())             # tap = NO
-check(h.switch.state == "pick" and json.loads(get(cfgfile))["role"] == "slave" and not machine.RESETS, "tap = NO: nothing happens")
+check(h.switch.state == "pick" and json.loads(get(cfgfile))["role"] == "parent" and not machine.RESETS, "tap = NO: nothing happens")
 h._on_button("long", time.ticks_ms())              # PLAY again
 machine.RTC.MEM["b"] = b""
 h._on_button("long", time.ticks_ms())              # hold = YES
 check(json.loads(get(cfgfile)) == {"role": "play", "wifi": {"password": "keep-me-1234"}}, "YES: config.json now says play, the password is untouched")
 check(len(machine.RESETS) == 1 and bootinfo.read() == bootinfo.MANUAL,
       "the board restarts, marked as started by a person (so the start-up screen shows)")
-check(json.loads(get(cfgfile + ".bak"))["role"] == "slave", "and the old config.json is kept as .bak")
+check(json.loads(get(cfgfile + ".bak"))["role"] == "parent", "and the old config.json is kept as .bak")
 
 # the write fails: NOT SAVED is shown, then back to the menu
 config.save_role = lambda role, path=cfgfile: (False, "no space")
@@ -201,7 +201,7 @@ go_to_role_item(h)
 h._on_button("long", time.ticks_ms())
 h.tick(time.ticks_ms() + 30000)
 check(h.state == ui.OFF and h.switch is None and not machine.RESETS, "an untouched role screen times out and the screen goes dark")
-h = new_hud("master")
+h = new_hud("child")
 h._on_button("long", time.ticks_ms())
 h._on_button("long", time.ticks_ms())
 check(h.state == ui.OFF and h.switch is None, "the child unit still has no menu, however long the button is held (a toddler cannot switch its role)")
@@ -254,25 +254,25 @@ check(a.level == 5 and a.beeps == 1 and config.state_load().get("volume_level") 
 check(sp[0] == 1.4 and fed, "menu SPEED: 1.0 -> 1.4 (the watchdog is fed while the menu is open)")
 check(not ui_play.menu_wanted, "leaving the menu clears the request")
 
-# role switch from the play menu. Items: VOLUME, SPEED, ROLE, EXIT. Role list: MASTER, SLAVE, PLAY, BACK (cursor on PLAY)
+# role switch from the play menu. Items: VOLUME, SPEED, ROLE, EXIT. Role list: CHILD, PARENT, PLAY, BACK (cursor on PLAY)
 put(cfgfile, json.dumps({"role": "play", "wifi": {"password": "keep-me-1234"}}))
 config.save_role = lambda role, path=cfgfile: _save(role, path)
 machine.RESETS.clear()
 ui_play.btn = Script(["short", "short", "long",        # ROLE
-                      "short", "short",                # PLAY -> BACK -> MASTER
-                      "long",                          # choose MASTER
+                      "short", "short",                # PLAY -> BACK -> CHILD
+                      "long",                          # choose CHILD
                       "long"])                         # YES
 ui_play.run_menu(Audio(), lambda: sp[0], step_speed, lambda: None)
-check(json.loads(get(cfgfile)) == {"role": "master", "wifi": {"password": "keep-me-1234"}} and len(machine.RESETS) == 1,
-      "play menu > ROLE > MASTER > YES: config.json says master, the board restarts")
+check(json.loads(get(cfgfile)) == {"role": "child", "wifi": {"password": "keep-me-1234"}} and len(machine.RESETS) == 1,
+      "play menu > ROLE > CHILD > YES: config.json says child, the board restarts")
 machine.RESETS.clear()
 put(cfgfile, json.dumps({"role": "play"}))
 ui_play.btn = Script(["short", "short", "long",        # ROLE
-                      "short", "short", "long",        # MASTER chosen: asks
+                      "short", "short", "long",        # CHILD chosen: asks
                       "short",                         # tap = NO: back to the list
-                      "short", "long",                 # MASTER -> SLAVE... then choose SLAVE: asks again
+                      "short", "long",                 # CHILD -> PARENT... then choose PARENT: asks again
                       "short",                         # NO
-                      "short", "short", "short", "long"])   # SLAVE -> PLAY -> BACK, leave the list (BACK)
+                      "short", "short", "short", "long"])   # PARENT -> PLAY -> BACK, leave the list (BACK)
 ui_play.run_menu(Audio(), lambda: sp[0], step_speed, lambda: None)
 check(json.loads(get(cfgfile))["role"] == "play" and not machine.RESETS, "play menu: NO at the confirmation changes nothing")
 

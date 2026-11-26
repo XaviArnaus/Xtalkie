@@ -1,7 +1,7 @@
 # Xtalkie -- Communication between 2 Waveshare ESP32-S3-Touch-AMOLED-1.8 devices, in MicroPython
 
-Two boards: a **master** in the child's room (listens, decides with a snore-aware gate, streams when something
-needs attention) and a **slave** with the parent (plays the audio, shows a bell, alarms if the link is lost).
+Two boards: a **child** in the child's room (listens, decides with a snore-aware gate, streams when something
+needs attention) and a **parent** with the parent (plays the audio, shows a bell, alarms if the link is lost).
 
 ## Layout (on the board and in this folder)
 
@@ -26,7 +26,7 @@ lib/                 everything else; each layer only uses the layers above it i
   net/               link.py (WiFi access point / station + UDP), proto.py (wire protocol)
   dsp/               gate.py (the detection algorithm), clipper.py (level trigger for the play mode), effects.py (speed); no hardware access
   ui/                gfx.py (font + icons), screens.py (the screens), hud.py (button, battery, menu, test mode), playui.py (play screen)
-  app/               master.py (child room), slave.py (parent), play.py (voice game)
+  app/               child.py (child room), parent.py (parent), play.py (voice game)
 tools/               run by hand from Thonny (never at boot)
   ui_demo.py  screen_probe.py  battery_check.py  disk.py  record_raw.py  cleanup_old.py
 pc/                  runs on the computer, not on the board
@@ -56,6 +56,12 @@ from drivers.axp2101 import AXP2101    # battery
 print(AXP2101(board.i2c()).read())     # (percent, external power, usb, battery present)
 ```
 
+## Names: child and parent
+
+The two units are the **child** unit (in the child's room: listens, decides, streams) and the **parent** unit (with the
+parent: plays, alarms, holds the menu). Until version 0.6.x they were called master and slave; a `config.json` written
+with those names still works (see CHANGELOG 0.7.0).
+
 ## Firmware
 
 The boards run the MicroPython build with the `amoled` display module from
@@ -80,7 +86,7 @@ Board: Waveshare ESP32-S3-Touch-AMOLED-1.8, original revision (SH8601 panel, FT3
 
 At power-up a unit shows the start-up screen (name, version, role; steps CONFIG, AUDIO, NETWORK, READY), gives one short
 beep, and after `ui.ready_s` seconds moves on (the parent unit shows its status screen). The same steps are printed
-with their times (`[boot] +123 ms ...`). The slave does not wait for WiFi: NETWORK shows SEARCHING and the unit is
+with their times (`[boot] +123 ms ...`). The parent does not wait for WiFi: NETWORK shows SEARCHING and the unit is
 usable at once.
 
 **The child unit never lights the room after an automatic restart** (crash, watchdog, reset button): it lights its
@@ -91,7 +97,7 @@ board behaves differently from this on the real hardware, `"ui": {"boot_screen":
 `config.json` forces the screen on (or off) and `"boot_beep": false` silences the beep.
 
 **Role chooser.** While the start-up screen says `HOLD BUTTON 2 S: CHOOSE ROLE` (about 3 s, right after READY), hold the
-BOOT button for 2 s: the list MASTER / SLAVE / PLAY / BACK appears (tap = next, hold = select, then hold = yes, tap = no).
+BOOT button for 2 s: the list CHILD / PARENT / PLAY / BACK appears (tap = next, hold = select, then hold = yes, tap = no).
 It works before any role code runs, so a role that crashes at start can still be switched. Do not hold BOOT while
 the board is being reset: that enters the chip's download mode. If the parent unit crashes 3 times in a row (each run
 shorter than a minute) the chooser appears by itself instead of starting the same role once more; it starts the unit
@@ -125,7 +131,7 @@ The BOOT button, and the panel is dark unless something is shown.
 - **hold 1 s** (parent unit): menu. Tap = next item, hold = select.
   TEST LIVE (stream the child's microphone for 10 s: AUDIO OK / NO AUDIO), TEST ALARM, VOLUME n (1..5, remembered),
   MIC n (1..5 = the child unit's sensitivity, set remotely and remembered there), ROLE, EXIT.
-- **ROLE** (parent unit menu, and the play menu): MASTER / SLAVE / PLAY / BACK. Choose one (hold), confirm with hold =
+- **ROLE** (parent unit menu, and the play menu): CHILD / PARENT / PLAY / BACK. Choose one (hold), confirm with hold =
   YES (tap = NO), and the unit writes `config.json` (only the `role` key; the old file stays as `config.json.bak`) and
   restarts in the new role. The child unit has no menu on purpose: a toddler cannot switch its role. To change the
   child unit's role, edit `config.json` or run `pc/deploy.py`.
@@ -143,7 +149,7 @@ with what the monitor hears at night.
 
 **Switch a board to it** (either board; it replaces the monitor role on that board while it runs):
 `python pc/deploy.py <port> play`, or in Thonny open `/config.json` on the board, set `"role": "play"` and reset.
-**Switch back before the night:** hold the button while it is idle > ROLE > MASTER or SLAVE > hold = YES (or edit
+**Switch back before the night:** hold the button while it is idle > ROLE > CHILD or PARENT > hold = YES (or edit
 `config.json` / deploy again). The same menu has VOLUME and SPEED (0.75 deep / 1.0 as spoken / 1.4 chipmunk, remembered).
 The menu opens only when no clip is being recorded, and the microphone is closed while it is open.
 
@@ -170,9 +176,9 @@ disp_off/disp_on on this firmware); `battery_check.py` raw power-chip readings; 
 
 ## Configuration (`config.json` overrides `lib/helpers/config.py`; only the keys you set are replaced)
 
-`role`, `port`, `cpu_mhz` (80/160/240, default 160), `auto_reboot`, `watchdog_ms`, `log`; `wifi` {ssid, password, channel, mode, master_ip, power_save (station side: none/min/max)};
+`role`, `port`, `cpu_mhz` (80/160/240, default 160), `auto_reboot`, `watchdog_ms`, `log`; `wifi` {ssid, password, channel, mode, child_ip, power_save (station side: none/min/max)};
 `audio` {mic_gain, volume, playback_gain, agc, agc_max_gain, volume_level}; `gate` {any `dsp/gate.py` setting}; `play` {trig_db, end_db, hang_ms, pre_ms, tail_ms, min_ms, max_s, speed, save, dir, max_total_kb, min_free_kb, idle_off_s};
-`master` {sens_level, max_open_s, cooldown_s, preroll_lead_ms}; `slave` {jitter_frames, link_timeout_ms, ...};
+`child` {sens_level, max_open_s, cooldown_s, preroll_lead_ms}; `parent` {jitter_frames, link_timeout_ms, ...};
 `ui` {enabled, manual_refresh, brightness, alarm_brightness, status_s, alert_hold_s, flash_ms, test_s,
 boot_screen, boot_beep, ready_s, chooser_window_s, chooser_hold_s, chooser_timeout_s, crash_limit}.
 Settings changed from the menu live in `state.json`, not in config.json.
@@ -184,15 +190,15 @@ python tests/run_all.py          # about a minute, no hardware, Python 3 only
 ```
 They use stand-ins for `machine` and `amoled` (`tests/stubs/`). They check: imports and the layering rule, the chip
 drivers on fake registers, the gate on synthetic snoring / speech / thump, the loopback path, the tools and
-`deploy.py` (with its version stamp), the version exchange and `pc/versions.py`, and two threaded master + slave simulations over real UDP (alerts, menu, live test, link loss, mute,
+`deploy.py` (with its version stamp), the version exchange and `pc/versions.py`, and two threaded child + parent simulations over real UDP (alerts, menu, live test, link loss, mute,
 the stream-length limit, the remote MIC level). Run them after every change; they do not replace a test on the boards.
 
 ## Battery
 
-Measured on the master with the first version (240 MHz, master as WiFi access point, screens in use for demos):
+Measured on the child with the first version (240 MHz, child as WiFi access point, screens in use for demos):
 100% to 62% in 40 minutes, so under 2 hours from full. The small battery is a backup, not a night supply: keep the
-master on USB power. Already in this version: `cpu_mhz` (default 160) and a per-minute battery line in
-`events.csv` (`batt=`, `ext=`) on both units, so the real drain per hour can be read after a night. The master's
+child on USB power. Already in this version: `cpu_mhz` (default 160) and a per-minute battery line in
+`events.csv` (`batt=`, `ext=`) on both units, so the real drain per hour can be read after a night. The child's
 status line prints `frame<=N ms`, the worst processing time per frame (limit: 20 ms).
 Not done: making the battery unit the WiFi *client* with modem sleep and the plugged-in unit the access point; that
 would cut the radio's consumption but changes who creates the network, so it needs the link tested again.

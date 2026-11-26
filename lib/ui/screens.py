@@ -42,7 +42,7 @@ def draw_status(g, title, link_ok, me, other, other_name, hint, ver=None, warn=N
         g.text_c(str(note)[:28], 424, 2, GRAY)
 
 
-ROLE_NAMES = {"master": "CHILD ROOM", "slave": "PARENT UNIT", "play": "PLAY MODE", "loopback": "LOOPBACK TEST"}
+ROLE_NAMES = {"child": "CHILD ROOM", "parent": "PARENT UNIT", "play": "PLAY MODE", "loopback": "LOOPBACK TEST"}
 
 
 def draw_boot(g, version, role, steps, hint=None):

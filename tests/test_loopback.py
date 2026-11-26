@@ -4,7 +4,7 @@ import struct
 from common import check, finish, patch_time
 
 patch_time()
-from app import master
+from app import child
 from helpers import config, log
 from net.link import LoopbackNet
 
@@ -33,7 +33,7 @@ class Audio:
 
 cfg, a = config.load("/nonexistent"), Audio()
 try:
-    master.run(cfg, a, LoopbackNet(), None)
+    child.run(cfg, a, LoopbackNet(), None)
 except KeyboardInterrupt:
     pass
 frames = [x for x in a.played if x is not None]

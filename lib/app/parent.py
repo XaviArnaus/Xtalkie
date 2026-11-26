@@ -1,9 +1,9 @@
-# app/slave.py -- the parent unit: play what the master sends, and raise an alarm if the link is lost.
+# app/parent.py -- the parent unit: play what the child sends, and raise an alarm if the link is lost.
 #
 # Idle: no I2S, speaker amplifier off; the unit only listens on the network and sends a HELLO every
 # second. When audio arrives it waits for a few frames (jitter buffer), switches the speaker on and
 # plays; when the stream ends (END packet, or silence on the network) it switches the speaker off again.
-# If no packet from the master arrives for link_timeout_ms the alarm beeps every alarm_period_ms.
+# If no packet from the child arrives for link_timeout_ms the alarm beeps every alarm_period_ms.
 import time
 
 import version
@@ -19,7 +19,7 @@ UNDERRUN_STOP_MS = 600
 
 def run(cfg, audio, net, hud=None):
     hud = hud or NullHud()
-    sc = cfg["slave"]
+    sc = cfg["parent"]
     verbose = sc["verbose"]
     jitter = sc["jitter_frames"]
     link_timeout = sc["link_timeout_ms"]
@@ -27,7 +27,7 @@ def run(cfg, audio, net, hud=None):
     my_version = version.full()
     peer_restart = None              # the child unit's restart code, as last reported
     gain = None                      # the audio object decides (automatic gain or fixed gain)
-    master = net.master_addr
+    child = net.child_addr
 
     queue = []
     end_flag = False
@@ -40,7 +40,7 @@ def run(cfg, audio, net, hud=None):
     played = 0
     link_up = False
     last_hb = None
-    master_state = None
+    child_state = None
     now = time.ticks_ms()
     last_hello = now - HELLO_MS
     last_alarm = now - alarm_period
@@ -56,7 +56,7 @@ def run(cfg, audio, net, hud=None):
     def _act_test(seconds):
         nonlocal cseq
         cseq += 1
-        return net.send(proto.pack_cmd(cseq, proto.CMD_LIVE, seconds), master)
+        return net.send(proto.pack_cmd(cseq, proto.CMD_LIVE, seconds), child)
 
     sens_known = 3
 
@@ -64,7 +64,7 @@ def run(cfg, audio, net, hud=None):
         nonlocal cseq, sens_known
         sens_known = sens_known % 5 + 1
         cseq += 1
-        net.send(proto.pack_cmd(cseq, proto.CMD_SENS, sens_known), master)
+        net.send(proto.pack_cmd(cseq, proto.CMD_SENS, sens_known), child)
         return sens_known
 
     hud.set_actions(test_live=_act_test, alarm_preview=lambda: None if hud.sound_muted() else audio.beep(),
@@ -72,7 +72,7 @@ def run(cfg, audio, net, hud=None):
                     sens_step=_sens_step, get_sens=lambda: sens_known, **volume_actions(audio))
 
     audio.close()
-    print("[slave] waiting for the master")
+    print("[parent] waiting for the child")
     try:
         while True:
             watchdog.feed()
@@ -93,23 +93,23 @@ def run(cfg, audio, net, hud=None):
                 last_hb = now
                 if not link_up:
                     link_up = True
-                    print("[slave] link up")
-                    log.write("slave", "link up")
+                    print("[parent] link up")
+                    log.write("parent", "link up")
                     hud.on_link(True)
                 if ptype == proto.T_HB:
-                    master_state = proto.parse_hb(body)
-                    if master_state is not None:
-                        hud.on_peer_status(master_state[2], master_state[3])
+                    child_state = proto.parse_hb(body)
+                    if child_state is not None:
+                        hud.on_peer_status(child_state[2], child_state[3])
                         hud.on_peer_version(proto.parse_hb_version(body))
                         rc = proto.parse_hb_restart(body)
                         hud.on_peer_restart(rc)
                         if rc != peer_restart:
                             peer_restart = rc
                             if rc:
-                                print("[slave] the child unit restarted by itself (crashes in a row: %d)" % (rc - 1))
-                                log.write("slave", "child restarted by itself,crashes=%d" % (rc - 1))
-                        if master_state[4]:
-                            sens_known = master_state[4]
+                                print("[parent] the child unit restarted by itself (crashes in a row: %d)" % (rc - 1))
+                                log.write("parent", "child restarted by itself,crashes=%d" % (rc - 1))
+                        if child_state[4]:
+                            sens_known = child_state[4]
                 elif ptype == proto.T_AUDIO:
                     last_audio_rx = now
                     if drop_stream:
@@ -143,7 +143,7 @@ def run(cfg, audio, net, hud=None):
                 last_hello = now
                 hseq += 1
                 bpct, bchg = hud.battery_info(now)
-                net.send(proto.pack_hello(hseq, bpct, bchg, my_version), master)
+                net.send(proto.pack_hello(hseq, bpct, bchg, my_version), child)
 
             # ---- playback ----
             if not playing and queue and (len(queue) >= jitter or end_flag):
@@ -160,7 +160,7 @@ def run(cfg, audio, net, hud=None):
                 if not stream_test:
                     hud.on_alert_start()
                 if verbose:
-                    print("[slave] playing%s (%d frames buffered)" % (" LIVE TEST" if stream_test else "", len(queue)))
+                    print("[parent] playing%s (%d frames buffered)" % (" LIVE TEST" if stream_test else "", len(queue)))
             if playing:
                 if not stream_test and hud.alert_dismissed():
                     # BOOT on the bell screen: the voice stops now and the rest of this stream is dropped
@@ -174,9 +174,9 @@ def run(cfg, audio, net, hud=None):
                     end_flag = False
                     expected = None
                     hud.on_alert_end()
-                    log.write("slave", "alert dismissed: voice stopped")
+                    log.write("parent", "alert dismissed: voice stopped")
                     if verbose:
-                        print("[slave] alert dismissed: voice stopped")
+                        print("[parent] alert dismissed: voice stopped")
                     continue
                 if speaker and hud.sound_muted():        # switched off while it plays: the bell stays, the voice goes
                     audio.set_pa(False)
@@ -206,9 +206,9 @@ def run(cfg, audio, net, hud=None):
                     else:
                         hud.on_alert_end()
                     stream_test = False
-                    log.write("slave", "stream finished,played=%d,lost=%d,underruns=%d" % (played, lost, underruns))
+                    log.write("parent", "stream finished,played=%d,lost=%d,underruns=%d" % (played, lost, underruns))
                     if verbose:
-                        print("[slave] stream finished (played=%d lost=%d underruns=%d)" % (
+                        print("[parent] stream finished (played=%d lost=%d underruns=%d)" % (
                             played, lost, underruns))
                 else:
                     if speaker:
@@ -223,28 +223,28 @@ def run(cfg, audio, net, hud=None):
                 drop_stream = False                      # the dismissed stream went quiet without an END
             if link_up and last_hb is not None and time.ticks_diff(now, last_hb) > link_timeout:
                 link_up = False
-                print("[slave] LINK LOST")
-                log.write("slave", "LINK LOST")
+                print("[parent] LINK LOST")
+                log.write("parent", "LINK LOST")
                 hud.on_link(False)
                 last_alarm = now - alarm_period          # alarm right away
             if not link_up and (last_hb is not None or sc["alarm_before_first_link"]):
                 if time.ticks_diff(now, last_alarm) >= alarm_period and not hud.muted(now):
                     last_alarm = now
-                    print("[slave] ALARM: no signal from the master")
-                    log.write("slave", "alarm")
+                    print("[parent] ALARM: no signal from the child")
+                    log.write("parent", "alarm")
                     audio.beep(abort=hud.silence_requested)      # a BOOT press during the beeps stops them at once
 
             if time.ticks_diff(now, last_min) >= 60000:
                 last_min = now
                 bpct, bext = hud.battery_info(now)
-                log.write("slave", "minute,link=%d,batt=%s,ext=%d,played=%d,lost=%d" % (
+                log.write("parent", "minute,link=%d,batt=%s,ext=%d,played=%d,lost=%d" % (
                     1 if link_up else 0, "?" if bpct is None else bpct, 1 if bext else 0, played, lost))
 
             if verbose and time.ticks_diff(now, last_status) >= 10000:
                 last_status = now
-                ms = "-" if master_state is None else ("gate %s, floor %.1f" % (
-                    "OPEN" if master_state[0] else "closed", master_state[1]))
-                print("[slave] %4ds link=%s master: %s  played=%d lost=%d" % (
+                ms = "-" if child_state is None else ("gate %s, floor %.1f" % (
+                    "OPEN" if child_state[0] else "closed", child_state[1]))
+                print("[parent] %4ds link=%s child: %s  played=%d lost=%d" % (
                     time.ticks_diff(now, t_start) // 1000, "up" if link_up else "DOWN", ms, played, lost))
 
             time.sleep_ms(5)

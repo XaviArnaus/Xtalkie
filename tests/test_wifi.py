@@ -65,18 +65,18 @@ def start(role, ps="none", **fail):
     return n
 
 
-n = start("slave")
+n = start("parent")
 check(log[0] == ("active", 0, False), "the station is switched off first, whatever state the last run left")
-n = start("slave", connect=2)
+n = start("parent", connect=2)
 check(n.wlan.connected and sum(1 for l in log if l[0] == "connect") == 3, "a refused connect is retried (3 tries, then connected)")
-n = start("slave", connect=9)
+n = start("parent", connect=9)
 check(not n.wlan.connected and n.sock is not None, "if the driver keeps refusing, start() still returns; ensure() keeps trying")
 n.wlan.connected = False
 n._last_try = -10000
 n.ensure()
 check(any(l[0] == "connect" for l in log[-4:]), "ensure() reconnects later")
 import time
-n = start("slave")
+n = start("parent")
 n.ensure(True)
 n.ensure(False)
 log.clear()
@@ -97,11 +97,11 @@ n.ensure(True)
 n._down_since = None
 n.ensure(True)
 check(not any(l[0] == "active" for l in log), "a healthy link is never restarted")
-n = start("slave", active=2)
+n = start("parent", active=2)
 check(n.wlan.up and n.wlan.connected, "the interface is restarted when 'Wifi Internal State Error' hits active(True)")
-n = start("master", config=1)
+n = start("child", config=1)
 check(n.mode == "ap" and sum(1 for l in log if l[0] == "config" and "essid" in l[2]) == 2, "the access point setup is retried once")
-for role, ps, want in (("master", "max", 0), ("slave", "none", 0), ("slave", "min", 1), ("slave", "max", 2)):
+for role, ps, want in (("child", "max", 0), ("parent", "none", 0), ("parent", "min", 1), ("parent", "max", 2)):
     start(role, ps)
     got = [l for l in log if l[0] == "config" and l[2] == ("pm",)]
     check(len(got) == 1, "%s / power_save %s -> pm applied once" % (role, ps))

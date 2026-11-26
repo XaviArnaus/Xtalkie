@@ -2,9 +2,9 @@
 """Copy the project to a board (main.py, README.md, lib/, tools/) and write its /config.json.
 
     python deploy.py COM5 loopback
-    python deploy.py COM5 master --ssid xtalkie --password MySecret123
-    python deploy.py /dev/ttyACM0 slave --ssid xtalkie --password MySecret123 --night
-    python deploy.py COM5 slave --clean        (also deletes the files of the old flat layout)
+    python deploy.py COM5 child --ssid xtalkie --password MySecret123
+    python deploy.py /dev/ttyACM0 parent --ssid xtalkie --password MySecret123 --night
+    python deploy.py COM5 parent --clean        (also deletes the files of the old flat layout)
 
 Close Thonny first (only one program can use the serial port). Needs:  pip install mpremote
 Use --dry-run to only print what would be done.
@@ -20,6 +20,7 @@ LEGACY = ["audio.py", "board.py", "config.py", "es8311.py", "gate2.py", "gfx.py"
           "net.py", "power.py", "proto.py", "screen.py", "slave.py", "ui.py", "watchdog.py", "disk.py",
           "ui_demo.py", "screen_probe.py", "battery_check.py", "record_raw.py", "README.txt"]
 ROOT_FILES = ["main.py", "README.md"]
+STALE = ["lib/app/master.py", "lib/app/slave.py"]      # renamed in 0.7.0 (child.py, parent.py): not left behind on a board
 DIRS = ["lib", "tools"]
 
 
@@ -38,7 +39,8 @@ def git_stamp(src):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", help="serial port of the board, e.g. COM5 or /dev/ttyACM0")
-    ap.add_argument("role", choices=["master", "slave", "loopback", "play", "idle"])
+    ap.add_argument("role", choices=["child", "parent", "loopback", "play", "idle", "master", "slave"],
+                    help="master / slave are the old names of child / parent")
     ap.add_argument("--ssid")
     ap.add_argument("--password")
     ap.add_argument("--night", action="store_true",
@@ -50,7 +52,7 @@ def main():
 
     src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the project folder
 
-    cfg = {"role": args.role}
+    cfg = {"role": {"master": "child", "slave": "parent"}.get(args.role, args.role)}
     wifi = {}
     if args.ssid:
         wifi["ssid"] = args.ssid
@@ -70,6 +72,9 @@ def main():
     if args.clean:
         for name in LEGACY:
             mp("fs", "rm", ":" + name, check=False)
+
+    for name in STALE:
+        mp("fs", "rm", ":" + name, check=False)
 
     for name in ROOT_FILES:
         mp("fs", "cp", os.path.join(src, name), ":" + name)

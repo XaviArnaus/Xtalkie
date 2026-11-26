@@ -3,6 +3,18 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.7.0
+- Rename: the roles `master` / `slave` are now `child` / `parent` (the unit in the child's room and the unit with the
+  parent), because the parent unit has the control and the child unit only sends. No change in behaviour. Everywhere:
+  the role in `config.json` and in the role menu / chooser, `app/child.py` and `app/parent.py` (were `master.py`,
+  `slave.py`), the settings sections `child` and `parent`, `wifi.child_ip` (was `master_ip`), the serial and
+  `events.csv` tags (`[child]`, `[parent]`, `child,...`, `parent,...`), `deploy.py <port> child|parent`, the docs and
+  the tests. The wire protocol is unchanged, so a 0.6.x unit still talks to a 0.7.0 unit.
+- A `config.json` written with the old names still works: the old role names, the sections `master` / `slave` and
+  `wifi.master_ip` are translated when the file is loaded (tests/test_names.py). `deploy.py` also still accepts
+  `master` / `slave` as the role and removes the old `lib/app/master.py` and `slave.py` from the board.
+- Old lines in an existing `events.csv` keep the old tags. The history of this file below keeps the old names.
+
 ## 0.6.4
 - Parent unit: after the child unit restarted, the two stayed at NO LINK for minutes (found while redeploying).
   Cause not proven (no serial output of that moment); likely a stale association or a driver stuck refusing

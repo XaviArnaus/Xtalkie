@@ -1,5 +1,5 @@
 """Start-up: why the board started (RTC marker + reset cause), the start-up screen, one shared panel, the child unit
-staying dark after an automatic restart, the ready beep, the crash path, and the slave not waiting for WiFi."""
+staying dark after an automatic restart, the ready beep, the crash path, and the parent not waiting for WiFi."""
 import builtins
 import os
 import sys
@@ -56,10 +56,10 @@ bootinfo.mark_clean()
 check(bootinfo.read() == bootinfo.CLEAN, "mark_clean / read")
 
 from ui import boot as bootscr
-check(bootscr.should_show("auto", "master", False) is False and bootscr.should_show("auto", "master", True) is True,
+check(bootscr.should_show("auto", "child", False) is False and bootscr.should_show("auto", "child", True) is True,
       "auto: the child unit shows the start-up screen only when a person started it")
-check(all(bootscr.should_show("auto", r_, False) for r_ in ("slave", "play", "loopback")), "auto: the other units always show it")
-check(bootscr.should_show("always", "master", False) and not bootscr.should_show("never", "slave", True), "always / never force it")
+check(all(bootscr.should_show("auto", r_, False) for r_ in ("parent", "play", "loopback")), "auto: the other units always show it")
+check(bootscr.should_show("always", "child", False) and not bootscr.should_show("never", "parent", True), "always / never force it")
 
 # ---------------------------------------------------------------- the Boot screen
 print("-- the start-up screen")
@@ -101,7 +101,7 @@ cfg_off["ui"]["enabled"] = False
 check(bootscr.open_screen(cfg_off, board.i2c()) == (None, None), "ui disabled: no panel opened")
 
 shows.clear()
-b = bootscr.Boot(disp, gfx, "slave", "0.3.0 abc1234", True, 60)
+b = bootscr.Boot(disp, gfx, "parent", "0.3.0 abc1234", True, 60)
 with Out() as o:
     b.step("CONFIG")
     b.step("AUDIO")
@@ -112,7 +112,7 @@ check(sum(1 for l in o.lines if l.startswith("[boot] +")) == 4 and o.has("NETWOR
       "every step is printed with its time")
 shows.clear()
 disp.hide()
-dark = bootscr.Boot(disp, gfx, "master", "0.3.0", False)
+dark = bootscr.Boot(disp, gfx, "child", "0.3.0", False)
 with Out() as o:
     dark.step("CONFIG")
     dark.step("READY")
@@ -121,7 +121,7 @@ check(not shows and not disp.on and sum(1 for l in o.lines if l.startswith("[boo
 shows.clear()
 _draw = S_.draw_boot
 S_.draw_boot = lambda *a, **k: (_ for _ in ()).throw(ValueError("boom"))
-bad = bootscr.Boot(disp, gfx, "slave", "0.3.0", True)
+bad = bootscr.Boot(disp, gfx, "parent", "0.3.0", True)
 with Out() as o:
     bad.step("CONFIG")
     bad.step("AUDIO")
@@ -140,7 +140,7 @@ class G:
 
 
 g = G()
-S_.draw_boot(g, "0.3.0 abc1234", "master", [("CONFIG", "OK"), ("AUDIO", None), ("NETWORK", "SEARCHING"), ("READY", "-")])
+S_.draw_boot(g, "0.3.0 abc1234", "child", [("CONFIG", "OK"), ("AUDIO", None), ("NETWORK", "SEARCHING"), ("READY", "-")])
 check(all(t in g.t for t in ("XTALKIE", "0.3.0 abc1234", "CHILD ROOM", "CONFIG", "OK", "SEARCHING")), "the start-up screen shows name, version, role and steps")
 
 # ---------------------------------------------------------------- Hud: hold the start-up screen
@@ -148,7 +148,7 @@ print("-- the HUD keeps the start-up screen, then moves on")
 import ui.hud as ui
 
 c = config.load("/nonexistent")
-for role, after in (("slave", ui.STATUS), ("master", ui.OFF)):
+for role, after in (("parent", ui.STATUS), ("child", ui.OFF)):
     d2, g2 = bootscr.open_screen(c, board.i2c())
     bootscr.Boot(d2, g2, role, "0.3.0", True).step("READY")
     h = ui.Hud(c, role, board.i2c(), (d2, g2))
@@ -160,8 +160,8 @@ for role, after in (("slave", ui.STATUS), ("master", ui.OFF)):
     h.tick(time.ticks_ms() + 5000)
     check(h.state == after, "%s: after the hold: %s" % (role, "status screen" if after == ui.STATUS else "dark"))
 d2, g2 = bootscr.open_screen(c, board.i2c())
-bootscr.Boot(d2, g2, "slave", "0.3.0", True).step("READY")
-h = ui.Hud(c, "slave", board.i2c(), (d2, g2))
+bootscr.Boot(d2, g2, "parent", "0.3.0", True).step("READY")
+h = ui.Hud(c, "parent", board.i2c(), (d2, g2))
 h.hold_boot(4000)
 h._on_button("short", time.ticks_ms())
 check(h.state == ui.STATUS, "a button press during the start-up screen shows the status screen")
@@ -170,14 +170,14 @@ h.hold_boot(4000)
 h.on_alert_start()
 check(h.state == ui.ALARM, "an alert during the start-up screen wins")
 d3, g3 = bootscr.open_screen(c, board.i2c())
-h = ui.Hud(c, "master", board.i2c(), (d3, g3))
+h = ui.Hud(c, "child", board.i2c(), (d3, g3))
 h.hold_boot(4000)
 check(h.state == ui.OFF, "nothing was drawn: nothing to hold")
-h = ui.Hud(c, "master", board.i2c(), (None, None))
+h = ui.Hud(c, "child", board.i2c(), (None, None))
 h.hold_boot(4000)
 check(h.display is None and h.state == ui.OFF, "a HUD without a screen ignores hold_boot")
 
-# ---------------------------------------------------------------- the slave does not wait for WiFi
+# ---------------------------------------------------------------- the parent does not wait for WiFi
 print("-- WiFi join does not block")
 net_mod = types.ModuleType("network")
 
@@ -201,7 +201,7 @@ from net.link import Net
 
 nc = config.load("/nonexistent")
 nc["port"] = 47510
-n = Net(nc, "slave")
+n = Net(nc, "parent")
 t0 = time.monotonic()
 with Out() as o:
     n.start(wait=False)
@@ -213,15 +213,15 @@ with Out() as o:
 check(n.joined() and o.has("joined 'xtalkie'"), "ensure() notices the join later")
 n.sock.close()
 nc["port"] = 47511
-n2 = Net(nc, "master")
+n2 = Net(nc, "child")
 n2.start(wait=False)
 check(n2.joined(), "the access point counts as joined")
 n2.sock.close()
 
 # ---------------------------------------------------------------- main.py end to end
 print("-- main.py: the start of each role")
-import app.master as app_master
-import app.slave as app_slave
+import app.child as app_child
+import app.parent as app_parent
 import app.play as app_play
 from board.audio import Audio
 
@@ -259,13 +259,13 @@ def run_main(role, marker, cause, ui_over=None, runner=None, auto_reboot=False, 
         if runner:
             runner()
 
-    orig = (app_master.run, app_slave.run, app_play.run)
-    app_master.run = app_slave.run = app_play.run = fake
+    orig = (app_child.run, app_parent.run, app_play.run)
+    app_child.run = app_parent.run = app_play.run = fake
     try:
         with Out() as o:
             exec(compile(src.replace("config.load()", "config.load(%r)" % path), "main.py", "exec"), {"__name__": "__main__"})
     finally:
-        app_master.run, app_slave.run, app_play.run = orig
+        app_child.run, app_parent.run, app_play.run = orig
     net = captured["args"][2] if "args" in captured and len(captured["args"]) > 2 else None
     if net is not None and getattr(net, "sock", None) is not None:
         net.sock.close()
@@ -276,7 +276,7 @@ def hud_of(cap):
     return cap["args"][3]
 
 
-lines, cap, nshow, nbeep = run_main("master", None, P)
+lines, cap, nshow, nbeep = run_main("child", None, P)
 check(nshow >= 4 and nbeep == 1 and hud_of(cap).state == ui.BOOT and hud_of(cap).display.on,
       "child unit, switched on by a person: start-up screen (%d draws), one ready beep, screen held" % nshow)
 check(cap["rtc_in_run"] == bootinfo.RUN, "the run is marked RUN while it runs")
@@ -286,28 +286,28 @@ check(sum(1 for l in lines if l.startswith("[boot] +")) == 4 and any("started by
 
 for text, marker, cause in (("after our own crash restart", bootinfo.AUTO, S), ("after a watchdog restart", bootinfo.RUN, W),
                             ("after a restart that lost the RTC memory", None, W)):
-    lines, cap, nshow, nbeep = run_main("master", marker, cause)
+    lines, cap, nshow, nbeep = run_main("child", marker, cause)
     check(nshow == 0 and nbeep == 0 and hud_of(cap).state == ui.OFF and not hud_of(cap).display.on,
           "child unit %s: the room stays dark, no beep" % text)
     check(sum(1 for l in lines if l.startswith("[boot] +")) == 4 and any("started by a person: no" in l for l in lines),
           "... and the steps are still printed")
 check(len(inits) == 1, "... the panel is still opened once (the HUD needs it)")
 
-lines, cap, nshow, nbeep = run_main("slave", bootinfo.AUTO, S)
+lines, cap, nshow, nbeep = run_main("parent", bootinfo.AUTO, S)
 check(nshow >= 4 and nbeep == 0 and hud_of(cap).state == ui.BOOT, "parent unit after an automatic restart: screen yes, beep no")
-lines, cap, nshow, nbeep = run_main("slave", None, P)
+lines, cap, nshow, nbeep = run_main("parent", None, P)
 check(nshow >= 4 and nbeep == 1, "parent unit switched on by a person: screen and one beep")
 check(any("searching for" in l for l in lines) and not any("not found yet" in l for l in lines)
       and any("SEARCHING" in l for l in lines if l.startswith("[boot] +")),
-      "slave: WiFi join is started without waiting, the NETWORK step says SEARCHING")
-lines, cap, nshow, nbeep = run_main("slave", None, P, wifi_joined=True)
-check(any("NETWORK" in l and " OK" in l for l in lines if l.startswith("[boot] +")), "slave: NETWORK says OK when already joined")
+      "parent: WiFi join is started without waiting, the NETWORK step says SEARCHING")
+lines, cap, nshow, nbeep = run_main("parent", None, P, wifi_joined=True)
+check(any("NETWORK" in l and " OK" in l for l in lines if l.startswith("[boot] +")), "parent: NETWORK says OK when already joined")
 
-lines, cap, nshow, nbeep = run_main("master", bootinfo.AUTO, S, {"boot_screen": "always"})
+lines, cap, nshow, nbeep = run_main("child", bootinfo.AUTO, S, {"boot_screen": "always"})
 check(nshow >= 4 and nbeep == 0, "boot_screen always: lit even after an automatic restart, but no beep")
-lines, cap, nshow, nbeep = run_main("slave", None, P, {"boot_screen": "never"})
+lines, cap, nshow, nbeep = run_main("parent", None, P, {"boot_screen": "never"})
 check(nshow == 0 and nbeep == 0, "boot_screen never: no start-up screen, no beep")
-lines, cap, nshow, nbeep = run_main("master", None, P, {"boot_beep": False})
+lines, cap, nshow, nbeep = run_main("child", None, P, {"boot_beep": False})
 check(nshow >= 4 and nbeep == 0, "boot_beep false: screen but no beep")
 
 lines, cap, nshow, nbeep = run_main("play", None, P)
@@ -325,11 +325,11 @@ def crash():
     raise RuntimeError("boom")
 
 
-lines, cap, nshow, nbeep = run_main("master", None, P, runner=crash, auto_reboot=True)
+lines, cap, nshow, nbeep = run_main("child", None, P, runner=crash, auto_reboot=True)
 check(bootinfo.read() == bootinfo.AUTO and len(machine.RESETS) == 1 and any("restarting in 5 s" in l for l in lines),
       "a crash with auto_reboot: marked AUTO, then the board restarts itself")
 check(not begin(bootinfo.AUTO, machine.PWRON_RESET)["manual"], "... and the next start of the child unit stays dark")
-lines, cap, nshow, nbeep = run_main("master", None, P, runner=crash, auto_reboot=False)
+lines, cap, nshow, nbeep = run_main("child", None, P, runner=crash, auto_reboot=False)
 check(bootinfo.read() == bootinfo.RUN and not machine.RESETS, "a crash without auto_reboot: no restart, the marker stays RUN")
 
 
@@ -337,7 +337,7 @@ def stop():
     raise KeyboardInterrupt
 
 
-lines, cap, nshow, nbeep = run_main("master", None, P, runner=stop)
+lines, cap, nshow, nbeep = run_main("child", None, P, runner=stop)
 check(bootinfo.read() == bootinfo.CLEAN and any(l == "stopped" for l in lines), "a stop on purpose is marked CLEAN")
 check(begin(bootinfo.CLEAN, machine.PWRON_RESET)["manual"], "... so the next power-on is a normal manual start")
 
@@ -377,31 +377,31 @@ def chooser_run(role, marker, cause, count=0, held=True, **kw):
     return run_main(role, marker, cause, count=count, **kw)
 
 
-lines, cap, nshow, nbeep = chooser_run("master", bootinfo.RUN, W, count=2)
+lines, cap, nshow, nbeep = chooser_run("child", bootinfo.RUN, W, count=2)
 check(not asked and nshow == 0 and nbeep == 0 and not hud_of(cap).display.on and hud_of(cap).state == ui.OFF,
       "child unit in a crash loop: NO chooser, no screen, no beep (the room stays dark)")
 check(any("3 crashes in a row: child unit stays dark" in l for l in lines), "... and it only says so in the serial output")
-lines, cap, nshow, nbeep = chooser_run("slave", bootinfo.RUN, W, count=2)
-check(asked == [("crash", "slave", 1)] and nshow >= 4 and hud_of(cap).state == ui.BOOT,
+lines, cap, nshow, nbeep = chooser_run("parent", bootinfo.RUN, W, count=2)
+check(asked == [("crash", "parent", 1)] and nshow >= 4 and hud_of(cap).state == ui.BOOT,
       "parent unit in a crash loop: the chooser right after the CONFIG step, then the start-up screen again (%s)" % asked)
-lines, cap, nshow, nbeep = chooser_run("slave", bootinfo.RUN, W, count=1)
+lines, cap, nshow, nbeep = chooser_run("parent", bootinfo.RUN, W, count=1)
 check(not asked, "2 crashes in a row: no chooser yet")
-lines, cap, nshow, nbeep = chooser_run("master", bootinfo.RUN, W, count=7, ui_over={"crash_limit": 0})
+lines, cap, nshow, nbeep = chooser_run("child", bootinfo.RUN, W, count=7, ui_over={"crash_limit": 0})
 check(not asked, "crash_limit 0: never")
 
-lines, cap, nshow, nbeep = chooser_run("slave", None, P, ui_over={"chooser_window_s": 3})
-check(held_calls == [(3000, 2000)] and asked == [("hold", "slave", 4)], "start-up screen waits 3 s for the button to be held 2 s, and the chooser opens")
+lines, cap, nshow, nbeep = chooser_run("parent", None, P, ui_over={"chooser_window_s": 3})
+check(held_calls == [(3000, 2000)] and asked == [("hold", "parent", 4)], "start-up screen waits 3 s for the button to be held 2 s, and the chooser opens")
 check(hints[0] is None and hints[-2] == "HOLD BUTTON 2 S: CHOOSE ROLE" and hints[-1] is None,
       "the hint 'HOLD BUTTON 2 S: CHOOSE ROLE' is on the READY screen while it waits, and gone afterwards")
-lines, cap, nshow, nbeep = chooser_run("slave", None, P, held=False, ui_over={"chooser_window_s": 3})
+lines, cap, nshow, nbeep = chooser_run("parent", None, P, held=False, ui_over={"chooser_window_s": 3})
 check(held_calls and not asked and hints[-1] is None, "button not held: no chooser, the hint is removed")
-lines, cap, nshow, nbeep = chooser_run("master", bootinfo.AUTO, S, ui_over={"chooser_window_s": 3})
+lines, cap, nshow, nbeep = chooser_run("child", bootinfo.AUTO, S, ui_over={"chooser_window_s": 3})
 check(not held_calls and not asked, "child unit after an automatic restart: dark, so no waiting for the button")
-lines, cap, nshow, nbeep = chooser_run("master", None, P, ui_over={"chooser_window_s": 3})
+lines, cap, nshow, nbeep = chooser_run("child", None, P, ui_over={"chooser_window_s": 3})
 check(held_calls and asked and asked[0][0] == "hold", "child unit switched on by a person: the chooser is reachable")
-lines, cap, nshow, nbeep = chooser_run("slave", None, P, ui_over={"chooser_window_s": 0})
+lines, cap, nshow, nbeep = chooser_run("parent", None, P, ui_over={"chooser_window_s": 0})
 check(not held_calls and not asked and None in hints, "chooser_window_s 0: no waiting, no chooser")
-lines, cap, nshow, nbeep = chooser_run("slave", None, P, auto_reboot=True, ui_over={"chooser_window_s": 3})
+lines, cap, nshow, nbeep = chooser_run("parent", None, P, auto_reboot=True, ui_over={"chooser_window_s": 3})
 check(order == ["wait", "chooser", "watchdog"], "the watchdog starts only after the chooser (it may wait for minutes): %s" % order)
 lines, cap, nshow, nbeep = chooser_run("play", None, P, ui_over={"chooser_window_s": 3})
 check(asked == [("hold", "play", 4)] and cap["kw"]["ui"] is not None, "play mode: the chooser is reachable too")

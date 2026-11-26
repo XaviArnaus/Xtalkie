@@ -6,15 +6,15 @@ first test on the real boards, ordered so the whole thing takes the least time. 
 serial output marked **[send]**.
 
 **Rollback:** `git checkout live-test-1`, then `python pc/deploy.py <port> <role> ...` on each board.
-**Names used below:** CHILD = the board in the child's room (role `master`), PARENT = the other board (role `slave`).
+**Names used below:** CHILD = the board in the child's room (role `child`), PARENT = the other board (role `parent`).
 **Unresponsive unit:** if a unit does not answer for a minute, connect it to the computer (Thonny), read the serial output.
 
 ## 0. Prepare
 
 - [ ] Both boards on USB, Thonny closed. Deploy (same SSID and password on both; `--night` only for step 12):
-  `python pc/deploy.py <port> master --ssid xtalkie --password <8+ chars>` and the same with `slave`.
+  `python pc/deploy.py <port> child --ssid xtalkie --password <8+ chars>` and the same with `parent`.
   (The default WiFi name is now `xtalkie`. A board whose old `config.json` still says `babymon` would not find the other one: deploy rewrites it.)
-- [ ] `python pc/versions.py` lists both boards as `0.6.x <commit>` with roles master and slave (it restarts them afterwards).
+- [ ] `python pc/versions.py` lists both boards as `0.6.x <commit>` with roles child and parent (it restarts them afterwards).
 - [ ] Open Thonny on one board, press Stop, then Ctrl+D in the shell (soft reboot) and copy everything it prints. **[send]**
   Look for: `xtalkie 0.6.x ...: role`, the `[boot] last run ended: ...; reset cause: ...; started by a person: ...; crashes in a row: ...`
   line, four `[boot] +NNN ms` step lines, `[net]` lines, `[disk]`.
@@ -35,7 +35,7 @@ Switch the PARENT off and on with its power switch.
 
 - [ ] Power-switch the CHILD off and on: start-up screen with one beep, then dark after 4 s. (Hint line shows for 3 s.)
 - [ ] Restart the CHILD without marking it as a person's doing: `python -m mpremote connect <port> reset` (these boards have no RESET button; close Thonny and `pc/watch.py` first, and the CHILD must be running main.py): the screen stays **dark** and silent. Tap BOOT: the status screen's bottom line says
-  `RESTART: NO CLEAN STOP` (or `OTHER`). **[send the serial output of this boot if it lit up, or the bottom line if not]**
+  `RESTART: NO CLEAN STOP` (or `OTHER`; with `mpremote ... reset` it is `OTHER`, because mpremote stops the program with Ctrl+C first, which counts as a clean stop; `NO CLEAN STOP` needs a watchdog restart or a hang). The text is dark gray. **[send the serial output of this boot if it lit up, or the bottom line if not]**
 - [ ] The CHILD never lights or beeps on its own during all of the tests below. Note if it does.
 - [ ] CHILD hold on status: dark. CHILD has no menu, however long you hold.
 
@@ -72,7 +72,7 @@ Hold BOOT on the PARENT (about 1.5 s), let go.
 
 ## 6. Role switch from the menu
 
-- [ ] PARENT: menu, ROLE: list shows MASTER / SLAVE / PLAY / BACK with the cursor on SLAVE. Hold on SLAVE and on BACK: back, nothing changes.
+- [ ] PARENT: menu, ROLE: list shows CHILD / PARENT / PLAY / BACK with the cursor on PARENT. Hold on PARENT and on BACK: back, nothing changes.
 - [ ] Choose PLAY: confirmation `SWITCH TO PLAY MODE / THE UNIT RESTARTS`, HOLD: YES, TAP: NO. Tap: back to the list. Nothing written.
 - [ ] Choose PLAY again, hold = YES: RESTARTING, the board restarts in play mode with start-up screen and one beep.
 - [ ] Thonny file view: `/config.json` has `"role": "play"` and your WiFi settings still in it; `/config.json.bak` has the old file; no `.new` file left. **[send the file contents with the password blanked]**
@@ -84,7 +84,7 @@ Hold BOOT on the PARENT (about 1.5 s), let go.
 - [ ] Hold BOOT while idle: menu with VOLUME n, SPEED x, ROLE, EXIT. Microphone is silent meanwhile. SPEED 0.75 / 1.0 / 1.4 changes the playback.
 - [ ] Press BOOT during a recording: nothing happens (no glitch in the clip).
 - [ ] Screen dark after 2 minutes; tap wakes it.
-- [ ] Menu, ROLE, SLAVE, confirm: the board restarts as the PARENT again (config.json role `slave`, WiFi settings intact).
+- [ ] Menu, ROLE, PARENT, confirm: the board restarts as the PARENT again (config.json role `parent`, WiFi settings intact).
 
 ## 8. Role chooser at start-up
 
@@ -101,13 +101,13 @@ Hold BOOT on the PARENT (about 1.5 s), let go.
 
 The two crashes are made on purpose with a bad config. Both use `auto_reboot` so the board restarts itself.
 
-- [ ] CHILD: in Thonny set `/config.json` to `{"role": "master", "auto_reboot": true, "gate": {"nonexistent": 1}}` and reset it.
+- [ ] CHILD: in Thonny set `/config.json` to `{"role": "child", "auto_reboot": true, "gate": {"nonexistent": 1}}` and reset it.
   Expected: it restarts every 5 s or so; serial shows `crashes in a row: 1, 2, 3, ...`, then `child unit stays dark`; the screen stays **dark and silent** (the very first start after your own reset may light up: a person did it); the PARENT shows NO LINK and beeps. **[send the serial output]**
-- [ ] Restore the CHILD with `python pc/deploy.py <port> master ...` (rewrites config.json).
-- [ ] PARENT: set `/config.json` to `{"role": "slave", "auto_reboot": true, "slave": null}` and reset it.
+- [ ] Restore the CHILD with `python pc/deploy.py <port> child ...` (rewrites config.json).
+- [ ] PARENT: set `/config.json` to `{"role": "parent", "auto_reboot": true, "parent": null}` and reset it.
   Expected: after 3 crashes in a row the role chooser appears (title **CRASHES**). Choosing the current role carries on and crashes again.
   **[send the serial output]**
-- [ ] Restore the PARENT with `python pc/deploy.py <port> slave ...`.
+- [ ] Restore the PARENT with `python pc/deploy.py <port> parent ...`.
 - [ ] `/events.csv` on each board (Thonny file view): the `boot` lines show `prev=`, `cause=`, `manual=`, `crashes=`. **[send events.csv]**
 
 ## 11. What to look at in the serial output
@@ -123,7 +123,7 @@ The two crashes are made on purpose with a bad config. Both use `auto_reboot` so
 
 ## 12. The real night (after everything above)
 
-- [ ] Redeploy both with `--night`: `python pc/deploy.py <port> master --ssid ... --password ... --night`, `... slave ... --night`.
+- [ ] Redeploy both with `--night`: `python pc/deploy.py <port> child --ssid ... --password ... --night`, `... parent ... --night`.
 - [ ] CHILD on USB power, PARENT within range. Check at start: link up, CHILD dark.
 - [ ] Morning: `python pc/versions.py` (restarts the boards, do it only when the night is over), and copy `/events.csv` from both boards. **[send]**
   Look for `boot` lines in the middle of the night: each is a restart; `crashes=` tells how many in a row.

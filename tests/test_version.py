@@ -104,7 +104,7 @@ import board
 from helpers import config
 from ui.hud import Hud
 
-hud = Hud(config.load("/nonexistent"), "slave", board.i2c())
+hud = Hud(config.load("/nonexistent"), "parent", board.i2c())
 check(hud.version == version.full() and hud.version_warning() is None, "Hud: own version known, no warning before the other unit is heard")
 hud.on_peer_version(version.full())
 check(hud.version_warning() is None, "Hud: same version, no warning")
@@ -129,7 +129,7 @@ sys.path.insert(0, os.path.join(ROOT, "pc"))
 import versions
 check(versions.parse_devs("/dev/cu.usbmodem1101 303a:1001 x\n/dev/cu.Bluetooth-Incoming-Port 0000:0000 y\nCOM5 303a:1001 z\n\n")
       == ["/dev/cu.usbmodem1101", "COM5"], "versions.py: ports out of `mpremote devs`, Bluetooth ignored")
-check(versions.parse_answer("XT-VERSION 0.2.0 abc1234\nXT-ROLE master\n") == ("0.2.0 abc1234", "master"), "versions.py: reads the board's answer")
+check(versions.parse_answer("XT-VERSION 0.2.0 abc1234\nXT-ROLE child\n") == ("0.2.0 abc1234", "child"), "versions.py: reads the board's answer")
 check(versions.parse_answer("XT-VERSION unknown\nXT-ROLE ?\n") == ("unknown", "?"), "versions.py: old code is 'unknown'")
 check(versions.parse_answer("Traceback ...")[0] == "unreadable", "versions.py: no answer is 'unreadable'")
 finish()

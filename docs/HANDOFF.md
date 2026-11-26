@@ -7,9 +7,9 @@ for the first real-board test of this changeset), `CHANGELOG.md` and `README.md`
 
 MicroPython on two **Waveshare ESP32-S3-Touch-AMOLED-1.8** boards (368x448 SH8601 AMOLED, ES8311 codec, AXP2101 power
 chip, FT3168 touch not used yet), dobodu prebuilt firmware `firmware_2026_05_02.bin`. A **baby monitor** for a 3-year-old
-who snores: the child unit (role `master`) streams audio to the parent unit (role `slave`) only when the child calls, never
+who snores: the child unit (role `child`) streams audio to the parent unit (role `parent`) only when the child calls, never
 for snoring. A third role `play` is a one-board voice game that saves clips of her voice (for a later pitch-based cue).
-UDP over WiFi, the master is the access point. WiFi name default is now `xtalkie` (was `babymon`).
+UDP over WiFi, the child is the access point. WiFi name default is now `xtalkie` (was `babymon`).
 
 Owner: hobbyist on a Mac with Thonny, little time, prefers stability over cutting edge, short answers, only the changed
 files. English. Now moving to a development PC to run the hardware test.
@@ -28,7 +28,7 @@ Layer rule is checked by `tests/test_layers.py`.
   shown at boot, in the log and on the status screen; the units tell each other their version (appended to HELLO and HB,
   older units ignore it); amber `CHILD HAS <v>` on mismatch; `pc/versions.py` lists connected boards (restarts them).
 - **0.3.0** start-up screen (CONFIG, AUDIO, NETWORK, READY) with step timings printed; the panel is opened once and shared
-  with the HUD / play screen; the slave no longer waits 15 s for WiFi (NETWORK shows SEARCHING); one ready beep on a
+  with the HUD / play screen; the parent no longer waits 15 s for WiFi (NETWORK shows SEARCHING); one ready beep on a
   person-started power-on; `ui.boot_screen` auto|always|never. Reboot reason: RTC-memory marker (`helpers/bootinfo.py`:
   RUN / AUTO / CLEAN / MANUAL, written by us before our own resets and by deploy/versions/role switch) AND
   `machine.reset_cause()`; the screen is lit only when both say "a person did it".
@@ -44,11 +44,16 @@ Layer rule is checked by `tests/test_layers.py`.
   `RESTART: CRASH X2`, ...); the child reports a restart code in every heartbeat and the parent shows amber
   `CHILD RESTARTED (Xn)` until a person restarts the child.
 
+- **0.6.1 to 0.6.4** (first hardware test fixes): ready beep audible (amplifier lead-in), no-link alarm acknowledged by BOOT until
+  the link changes, BOOT on the bell stops the voice, 3 quick taps switch the parent's sound off / on (remembered), WiFi
+  recovery on the parent after the child restarted. **0.7.0**: roles renamed master/slave -> child/parent (old config.json
+  names still read). Hardware test sections 1 to 10 passed; the real night (section 12) is next.
+
 ## Decisions to keep
 
 - The child unit has no menu and never lights or beeps on its own (a toddler; do not change without asking).
 - Button actions fire on release; hold = 1.2 s or more (start-up chooser: 2 s).
-- Stability first: do not change master/slave behaviour without a reason; every new feature behind tests; say clearly what
+- Stability first: do not change child/parent behaviour without a reason; every new feature behind tests; say clearly what
   is not verified on hardware; never claim a fix works without the owner's report.
 - Keep `docs/BEHAVIOUR.md` in step with every behaviour change (the owner cannot remember all the presses).
 
@@ -60,14 +65,14 @@ Layer rule is checked by `tests/test_layers.py`.
 2. Likely to need fixes after that: the screen layouts (never seen rendered), what each reset really reports and whether RTC
    memory survives them (decides whether the child stays dark), the 3 s chooser window, the play menu feel.
 3. Then the real-world run (two nights + naps) with `--night`.
-4. Later: step 4 master settings on the child unit (deliberate 3 s hold, confirm, timeout; only after the live test), step 5
+4. Later: step 4 child settings on the child unit (deliberate 3 s hold, confirm, timeout; only after the live test), step 5
    touch (FT3168 at I2C 0x38, pure-Python driver, same menu actions; BOOT must stay as fallback; update BEHAVIOUR.md).
 5. Open data work: real recordings of the child (voice and snoring) for a pitch cue (200-450 Hz periodicity); the play mode
    collects voice clips, night clips of snoring still to be planned.
 
 ## Facts worth remembering
 
-- Confirmed by the owner: the WiFi start fix cured `Wifi Internal State Error` on the slave.
+- Confirmed by the owner: the WiFi start fix cured `Wifi Internal State Error` on the parent.
 - Hardware: I2C SDA 15 / SCL 14; I2S SCK 9, WS 45, DOUT 8, DIN 10; amp enable GPIO46; BOOT = GPIO0; TCA9554 at 0x20; AXP2101 at
   0x34. `disp_off/disp_on` break the panel on this firmware: hide with brightness 0. A screen draw takes 130-210 ms; the mic
   buffer holds about 150 ms, so nothing is drawn while recording. Holding BOOT during a reset enters download mode.
