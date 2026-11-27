@@ -17,21 +17,25 @@ lib/                 everything else; each layer only uses the layers above it i
     es8311.py          audio codec (I2C control)
     axp2101.py         power management: battery, charger, USB
     tca9554.py         I/O expander (panel power and reset lines)
+    pcf85063.py        real-time clock chip (keeps the time while the board is off)
     sh8601.py          AMOLED panel, through the firmware's `amoled` module
   board/             this board: wiring, and the peripherals built from the drivers
     __init__.py        pin map, constants, the shared I2C bus      (import board)
     audio.py           I2S + ES8311: capture frames, play frames, beep, automatic gain
     display.py         TCA9554 + SH8601: panel power/reset, show / hide by brightness
-  helpers/           config.py (config.json + state.json), log.py (rotating log), watchdog.py, clips.py (WAV clips, capped)
+    rtc.py             the clocks: makes the clock chip and the ESP32's own clock agree at boot, sets both
+  helpers/           config.py (config.json + state.json), log.py (rotating log), clock.py (date and time stamp), watchdog.py, clips.py (WAV clips, capped)
   net/               link.py (WiFi access point / station + UDP), proto.py (wire protocol)
   dsp/               gate.py (the detection algorithm), clipper.py (level trigger for the play mode), effects.py (speed); no hardware access
   ui/                gfx.py (font + icons), screens.py (the screens), hud.py (button, battery, menu, test mode), playui.py (play screen)
   app/               child.py (child room), parent.py (parent), play.py (voice game)
 tools/               run by hand from Thonny (never at boot)
-  ui_demo.py  screen_probe.py  battery_check.py  disk.py  record_raw.py  cleanup_old.py
+  ui_demo.py  screen_probe.py  battery_check.py  disk.py  record_raw.py  clock_probe.py  cleanup_old.py
 pc/                  runs on the computer, not on the board
   deploy.py          copies the project to a board and writes its config.json
   versions.py        lists the software version and role of every connected board (restarts them afterwards)
+  settime.py         sets a board's clock (chip and ESP32) from this computer's time; deploy.py does it too
+  ports.py  watch.py  lists the serial ports; a serial monitor that survives board restarts
   raw2wav.py         converts a raw recording into a WAV file
   requirements.txt   mpremote (for deploy.py)
 tests/               host-side tests: Python 3 only, no hardware (see "Tests")
@@ -168,11 +172,26 @@ Tuning (`play` in config.json): `trig_db` (12) how far above the room a sound mu
 for whispers; `hang_ms` (800) the pause that ends a clip; `speed` 1.4 makes her voice a chipmunk, 0.75 a giant;
 `"save": false` plays only, keeps nothing.
 
+## The clock and the log
+
+Every line of `events.csv` starts with the **date and time** (local time, as set from the computer), then the uptime in
+seconds: `2026-11-27 01:06:12,19345,child,event,0.26,-59.7,...`. A line with `-` instead of a date was written while the
+clock was not set. Lines written before version 0.8.0 have no date and time at all (their first field is the uptime).
+
+The board has two clocks: the ESP32's own (survives a restart, lost when the power is cut) and a clock chip, PCF85063,
+that keeps counting while the board is switched off. At every start `board/rtc.py` makes them agree: the chip wins when
+it can be trusted; a chip that lost its time (flag set) is set from the ESP32's clock when that one is still right.
+`python pc/deploy.py ...` sets both from the computer's time (`--no-clock` to skip), and `python pc/settime.py <port>`
+does only that. If the log shows `-`, run `pc/settime.py`. The serial output at start says `[clock] ... (chip)`,
+`(system->chip)`, `(system)` or `not set`. Local time only: no time zone and no daylight saving, so set it again after a
+clock change if you want the logs to follow the wall clock.
+
 ## Checks and diagnostics (`tools/`, with config.json `{"role": "idle"}` and a reset)
 
 `ui_demo.py` every screen and the battery; `screen_probe.py` which panel switch-on sequence works (found: do not use
 disp_off/disp_on on this firmware); `battery_check.py` raw power-chip readings; `disk.py` free flash and file sizes
-(free space is also printed at every boot); `record_raw.py` raw audio to a file, then `python pc/raw2wav.py file.raw`.
+(free space is also printed at every boot); `record_raw.py` raw audio to a file, then `python pc/raw2wav.py file.raw`;
+`clock_probe.py` what clocks the board has (`python -m mpremote connect <port> run tools/clock_probe.py`).
 
 ## Configuration (`config.json` overrides `lib/helpers/config.py`; only the keys you set are replaced)
 

@@ -121,6 +121,17 @@ The two crashes are made on purpose with a bad config. Both use `auto_reboot` so
 | `[net] searching for 'xtalkie' ...` then `[net] joined ...` | the non-blocking WiFi join |
 | `[ui] screen disabled` | the shared panel did not start: send the lines before it |
 
+## 11b. The clock (0.8.0)
+
+- [ ] `python pc/deploy.py <port> child ... ` prints `setting the board's clock ...`; the serial output at the next start
+  says `[clock] YYYY-MM-DD HH:MM:SS (chip)` with the right time. **[send]**
+- [ ] `python pc/settime.py <port>` shows computer and board with the same time and `clock chip: set`.
+- [ ] Unplug USB, switch the unit off with PWR for two minutes (battery in), switch it on, connect USB later and read the
+  `boot` line in `events.csv` (`python -m mpremote connect <port> fs cat :events.csv`): `clock=chip,sysclock=lost` and a
+  date/time that is right = the chip kept the time while the power was off. **[send]** that line
+- [ ] `events.csv` lines start with the date and time; a line with `-` means the clock was not set.
+- [ ] After a hard restart (`python -m mpremote connect <port> reset`) the time is still right.
+
 ## 12. The real night (after everything above)
 
 - [ ] Redeploy both with `--night`: `python pc/deploy.py <port> child --ssid ... --password ... --night`, `... parent ... --night`.

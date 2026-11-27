@@ -101,6 +101,17 @@ def main():
         bootinfo.NAMES.get(info["previous"], "?"), info["cause"], "yes" if info["manual"] else "no",
         info["crashes"], "on" if show else "off"))
     i2c = board.i2c()
+    clock_note = "unavailable"
+    try:
+        from board import rtc
+        src = rtc.init(i2c)
+        from helpers import clock
+        was = {True: "kept", False: "lost", None: "?"}[rtc.INFO["system_was_set"]]
+        clock_note = "%s,sysclock=%s" % (src, was)
+        print("[clock] %s (source: %s; the ESP32's own clock had been %s)" % (
+            clock.stamp() if clock.valid() else "not set: run pc/settime.py", src, was))
+    except Exception as e:
+        print("[clock] not available:", e)
     shared = bootscr.open_screen(cfg, i2c)               # the ONE panel object, handed on to the HUD / play screen
     boot = bootscr.Boot(shared[0], shared[1], role, version.full(), show, u["brightness"])
     boot.step("CONFIG")
@@ -141,8 +152,8 @@ def main():
         print("[disk] %d KB free of %d KB" % (free_kb, total_kb))
     except Exception:
         free_kb = -1
-    log.write("boot", "role=%s,ver=%s,free_kb=%d,prev=%s,cause=%s,manual=%d,crashes=%d" % (
-        role, version.full(), free_kb, info["previous"], info["cause"], 1 if info["manual"] else 0, info["crashes"]))
+    log.write("boot", "role=%s,ver=%s,free_kb=%d,prev=%s,cause=%s,manual=%d,crashes=%d,clock=%s" % (
+        role, version.full(), free_kb, info["previous"], info["cause"], 1 if info["manual"] else 0, info["crashes"], clock_note))
     ready_ms = int(u["ready_s"] * 1000)
 
     if role == "play":
