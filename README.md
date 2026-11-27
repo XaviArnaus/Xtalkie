@@ -227,7 +227,7 @@ usually right; a baby that whimpers at a regular rhythm below the speech brightn
 
 Off by default. `bin/xtalkie deploy child --clips` (or `CLIPS=1` in `.env`) makes the child keep audio in `/night`:
 `YYYYMMDD_HHMMSS_e.wav` (an alerted event, with 0.5 s before it) and `..._w.wav` (a 20 s window, at most one per 20 min,
-to see the rhythm of the snoring), plus `index.csv`. Up to 9 MB, 4 MB of flash stay free; when full the oldest event clip
+to see the rhythm of the snoring), plus `index.csv`. Up to 6 MB and 60 files, 4 MB of flash stay free, at most one event clip per 10 s (the flash file system gets very slow with many files; the recorder switches itself off for the run if it does); when full the oldest event clip
 of the busiest hour goes first. Next morning: `bin/xtalkie clips` copies them to `night_clips/<date>/` (they are plain
 16 kHz WAV files). It stops the program and switches the watchdog off: `bin/xtalkie arm` (or a deploy) puts the unit back
 in night mode. `bin/xtalkie clip-probe` measures flash writes with the microphone running (done once; see CHANGELOG 0.9.0).

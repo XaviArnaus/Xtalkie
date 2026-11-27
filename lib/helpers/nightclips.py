@@ -1,8 +1,9 @@
 # helpers/nightclips.py -- audio clips of the night, kept on the child unit's flash for ANALYSIS (off by default).
 #
-# Two kinds of file in /night (16 kHz 16-bit mono WAV, named by local date and time of the end of the event):
-#   YYYYMMDD_HHMMSS_e.wav  an alerted event: up to 0.5 s before it, the event itself (at most 6 s)
-#   YYYYMMDD_HHMMSS_w.wav  a 20 s window: the last 3 s plus the next 17 s, to see the RHYTHM of the snoring
+# Two kinds of file in /night (16 kHz 16-bit mono WAV, named by local date and time of the end of the event; the
+# last number is the length in 20 ms frames):
+#   YYYYMMDD_HHMMSS_e_N.wav  an alerted event: up to 0.5 s before it, the event itself (at most 6 s)
+#   YYYYMMDD_HHMMSS_w_N.wav  a 20 s window: the last 3 s plus the next 17 s, to see the RHYTHM of the snoring
 #                          (at most one per window_every_s, so the first event of an episode starts one)
 # /night/index.csv has one line per file: datetime,uptime_s,file,kind,seconds,peak_db,mean_db,zcr,verdict.
 # Copy them with `bin/xtalkie clips`.
@@ -13,6 +14,11 @@
 # longest gap between mic frames at ~100 ms; the mic buffer holds ~150 ms.
 # Space: at most `budget` bytes of clips and `min_free` bytes of flash always left free. When full, the oldest
 # EVENT clip of the busiest hour goes first (windows are rarer and worth more), so the whole night stays covered.
+# The flash file system (LittleFS) gets very slow with many files: on the real board 150 files made single operations
+# take 1-13 s (the mic loses audio, and the 15 s watchdog is close), and a stat of every file at start-up took longer
+# than the watchdog. So: few files (max_files), at most one event clip per min_gap_s, the size of a file is in its NAME
+# (nothing is stat'ed; one os.listdir at start), the free space is tracked here (no statvfs per clip), and after
+# `slow_strikes` flash operations slower than slow_ms the recorder switches itself off for this run.
 # Never raises: after 3 errors the recorder switches itself off and the monitor goes on.
 import os
 import time
@@ -35,14 +41,20 @@ def _free():
 
 
 class NightClips:
-    def __init__(self, folder="/night", budget=9000000, min_free=4000000, window_s=20, window_every_s=1200,
-                 free_fn=None):
+    def __init__(self, folder="/night", budget=6000000, min_free=4000000, window_s=20, window_every_s=1200,
+                 free_fn=None, max_files=60, min_gap_s=10, slow_ms=400, slow_strikes=3):
         self.folder = folder
         self.budget = budget
         self.min_free = min_free
         self.window_frames = int(window_s * FRAMES_PER_S)
         self.window_every_ms = int(window_every_s * 1000)
         self._free = free_fn or _free
+        self.max_files = max_files
+        self.min_gap_ms = int(min_gap_s * 1000)
+        self.slow_ms = slow_ms
+        self.slow_strikes = slow_strikes
+        self.slow = 0
+        self.last_event_clip = None
         self.on = True
         self.errors = 0
         self.saved = 0
@@ -53,7 +65,7 @@ class NightClips:
         self._ring = [None] * PRE_FRAMES
         self._w = 0
         self._n = 0
-        self.files = {}                       # name -> size
+        self.files = {}                       # name -> size (from the name: nothing is stat'ed)
         try:
             os.mkdir(folder)
         except OSError:
@@ -61,9 +73,13 @@ class NightClips:
         try:
             for name in os.listdir(folder):
                 if name.endswith(".wav"):
-                    self.files[name] = os.stat(folder + "/" + name)[6]
+                    self.files[name] = self._size_of(name)
         except OSError:
             pass
+        try:
+            self._free_b = self._free()           # once; then it is tracked here
+        except Exception:
+            self._free_b = 10 ** 9
 
     # ---- what the child loop calls ----
     def feed(self, payload):
@@ -103,6 +119,10 @@ class NightClips:
                 target = self.window_frames
                 self.last_window = now
             elif alerted:
+                if self.last_event_clip is not None and time.ticks_diff(now, self.last_event_clip) < self.min_gap_ms:
+                    self.skipped += 1                      # fewer files: LittleFS gets slow with many
+                    return
+                self.last_event_clip = now
                 kind = "e"
                 frames = self._snapshot(min(EVENT_MAX, int(d_s * FRAMES_PER_S) + EVENT_PRE))
                 target = len(frames)
@@ -127,15 +147,29 @@ class NightClips:
         return sum(self.files.values())
 
     # ---- inside ----
+    @staticmethod
+    def _size_of(name):
+        """Bytes of a clip, from its name YYYYMMDD_HHMMSS_k_FRAMES.wav (older names: an estimate)."""
+        parts = name[:-4].split("_")
+        if len(parts) >= 4 and parts[3].isdigit():
+            return int(parts[3]) * FRAME_BYTES + 44
+        return 640044 if (len(parts) > 2 and parts[2].startswith("w")) else 60000
+
+    @staticmethod
+    def _kind_of(name):
+        parts = name.split("_")
+        return parts[2][0] if len(parts) > 2 else "e"
+
     def _snapshot(self, k):
         k = min(k, self._n)
         return [self._ring[(self._w - i) % PRE_FRAMES] for i in range(k, 0, -1)]
 
     def _name(self, j):
         t = time.localtime()
+        n = len(j["frames"])
         if t[0] >= clock.MIN_YEAR:
-            return "%04d%02d%02d_%02d%02d%02d_%s.wav" % (t[0], t[1], t[2], t[3], t[4], t[5], j["kind"])
-        return "t%06d_%s.wav" % (j["up"], j["kind"])        # the clock was never set: uptime instead
+            return "%04d%02d%02d_%02d%02d%02d_%s_%d.wav" % (t[0], t[1], t[2], t[3], t[4], t[5], j["kind"], n)
+        return "t%06d_%s_%d.wav" % (j["up"], j["kind"], n)  # the clock was never set: uptime instead
 
     def _victim(self):
         """The file to delete first: the oldest event clip of the busiest hour (else its oldest file)."""
@@ -147,7 +181,7 @@ class NightClips:
             counts[n[:11]] = counts.get(n[:11], 0) + 1
         busiest = max(counts, key=lambda h: counts[h])
         hour = [n for n in names if n[:11] == busiest]
-        events = [n for n in hour if n.endswith("_e.wav")]
+        events = [n for n in hour if self._kind_of(n) == "e"]
         return (events or hour)[0]
 
     def _remove(self, name):
@@ -155,14 +189,15 @@ class NightClips:
             os.remove(self.folder + "/" + name)
         except OSError:
             pass
-        self.files.pop(name, None)
+        self._free_b += self.files.pop(name, 0)
 
     def _flush_step(self, j):
         t0 = time.ticks_us()
         if j["f"] is None:
             n_bytes = len(j["frames"]) * FRAME_BYTES
             size = n_bytes + 44
-            if self.used() + size > self.budget or self._free() - size < self.min_free:
+            if (self.used() + size > self.budget or self._free_b - size < self.min_free
+                    or len(self.files) >= self.max_files):
                 victim = self._victim()
                 if victim is None:
                     self.skipped += 1                  # does not fit and nothing to make room: give up on this clip
@@ -182,13 +217,19 @@ class NightClips:
             if j["pos"] >= len(frames):
                 j["f"].close()
                 j["f"] = None
-                self.files[j["name"]] = len(frames) * FRAME_BYTES + 44
+                size = len(frames) * FRAME_BYTES + 44
+                self.files[j["name"]] = size
+                self._free_b -= size
                 self._index(j)
                 self.saved += 1
                 self.job = None
         ms = time.ticks_diff(time.ticks_us(), t0) // 1000
         if ms > self.worst_ms:
             self.worst_ms = ms
+        if ms > self.slow_ms and self.on:
+            self.slow += 1
+            if self.slow >= self.slow_strikes:
+                self._give_up("slow flash (%d ms)" % ms)
 
     def _index(self, j):
         try:
@@ -198,6 +239,24 @@ class NightClips:
                     j["peak"], j["mean"], "-" if j["zcr"] is None else j["zcr"], str(j["verdict"]).replace(",", ";")))
         except Exception:
             pass
+
+    def _give_up(self, why):
+        """Too slow for the monitor: stop for this run (what is saved stays)."""
+        j = self.job
+        self.job = None
+        self.on = False
+        if j is not None and j.get("f") is not None:
+            try:
+                j["f"].close()
+            except Exception:
+                pass
+            self._remove(j["name"] or "")
+        try:
+            from helpers import log
+            log.write("child", "nightclips off: %s" % why)
+        except Exception:
+            pass
+        print("[clips] night clips switched off for this run:", why)
 
     def _fail(self, e):
         j = self.job

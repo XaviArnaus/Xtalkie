@@ -3,6 +3,17 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.10.1
+- Night clips made safe after the first real run: with 150+ files in `/night` the flash file system took 1-13 s for a
+  single operation (`clipw` in the minute line; the microphone loses audio meanwhile) and a `stat` of every file at
+  start-up outlasted the 15 s watchdog, so the child crash-looped (`cause=3`, hang right after `patterns loaded`).
+  Now: the recorder never stats files (one `listdir`; the length in 20 ms frames is part of the file name,
+  `YYYYMMDD_HHMMSS_e_45.wav`), tracks the free space itself (no `statvfs` per clip), keeps at most 60 files
+  (`max_files`) and 6 MB (`budget`), saves at most one event clip per 10 s (`min_gap_s`), switches itself off for the run
+  after 3 flash operations slower than 400 ms (`nightclips off: slow flash` in the log), and is not started at all after
+  2 crashes in a row. Clips written by 0.9.0 / 0.10.0 have the old names: copy them (`bin/xtalkie clips`) and `clips --clear`
+  before running 0.10.1 with clips.
+
 ## 0.10.0
 - Adaptive snore learning (`dsp/gate.py`). The old model needed bursts of 0.5-2.5 s at most 7 s apart, so the real snoring
   (bursts of 0.1-0.8 s, 7-8 s apart, peak only ~4 dB over the threshold) never counted as snoring and every event alerted.

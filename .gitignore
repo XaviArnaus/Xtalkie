@@ -27,3 +27,6 @@ venv/
 
 # audio copied from the board by bin/xtalkie clips
 night_clips/
+
+# events copied from the board by bin/xtalkie events
+*.csv

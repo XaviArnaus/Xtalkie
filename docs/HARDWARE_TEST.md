@@ -141,6 +141,7 @@ The two crashes are made on purpose with a bad config. Both use `auto_reboot` so
 
 ## 13. Night clips (0.9.0, only to gather data)
 
+- [ ] Before the first run of 0.10.1+: `bin/xtalkie clips` then `bin/xtalkie clips --clear` (an old, big `/night` made the flash slow).
 - [ ] `bin/xtalkie deploy child --clips`: the serial output says `[clips] night clips ON`; the parent deploy has no `--clips`.
 - [ ] Make a few sounds near the child, wait 2 minutes: `events.csv` minute lines end with `clips=N,clipskip=N,clipw=ms`
   (`clipw` should stay under ~100 ms; the `frame<=` figure in the serial lines too).

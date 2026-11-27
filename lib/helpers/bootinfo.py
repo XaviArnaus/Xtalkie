@@ -53,6 +53,11 @@ def mark(state, count=0):
         pass                      # no RTC memory: the reset cause alone decides
 
 
+def crashes():
+    """Crashes in a row, as counted at this start."""
+    return _crashes
+
+
 def mark_auto():
     mark(AUTO, _crashes)
 

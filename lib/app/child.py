@@ -70,10 +70,14 @@ def run(cfg, audio, net, hud=None):
         log.write("child", "patterns loaded,n=%d" % n_loaded)
     nc = None
     ncfg = cfg.get("nightclips", {})
-    if ncfg.get("enabled"):
+    if ncfg.get("enabled") and bootinfo.crashes() >= 2:
+        print("[clips] night clips NOT started: %d crashes in a row (a crash loop must not be made worse)" % bootinfo.crashes())
+        log.write("child", "night clips not started,crashes=%d" % bootinfo.crashes())
+    elif ncfg.get("enabled"):
         try:
-            nc = NightClips(folder=ncfg.get("folder", "/night"), budget=ncfg["budget"], min_free=ncfg["min_free"], window_s=ncfg["window_s"],
-                            window_every_s=ncfg["window_every_s"])
+            nc = NightClips(folder=ncfg.get("folder", "/night"), budget=ncfg["budget"], min_free=ncfg["min_free"],
+                            window_s=ncfg["window_s"], window_every_s=ncfg["window_every_s"],
+                            max_files=ncfg["max_files"], min_gap_s=ncfg["min_gap_s"])
             print("[clips] night clips ON: %d KB kept at most, %d files now" % (ncfg["budget"] // 1024, len(nc.files)))
             log.write("child", "night clips on,files=%d" % len(nc.files))
         except Exception as e:

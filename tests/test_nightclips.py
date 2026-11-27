@@ -46,8 +46,8 @@ nc.event(0.4, -59.0, -63.0, 30, "ALERT: loud", True)                      # firs
 check(nc.job["kind"] == "w" and len(nc.job["frames"]) == 150, "the first event of an episode starts a 20 s window (3 s already heard)")
 steps = drain(nc)
 names = sorted(os.listdir(d))
-check(any(n.endswith("_w.wav") for n in names) and "index.csv" in names, "the window is saved, with an index.csv")
-w = [n for n in names if n.endswith("_w.wav")][0]
+check(any("_w_" in n for n in names) and "index.csv" in names, "the window is saved, with an index.csv")
+w = [n for n in names if "_w_" in n][0]
 data = open(os.path.join(d, w), "rb").read()
 check(len(data) == 44 + 1000 * 640 and data[:4] == b"RIFF" and struct.unpack("<I", data[40:44])[0] == 1000 * 640,
       "the window is a valid 20 s WAV (%d bytes)" % len(data))
@@ -57,7 +57,7 @@ nc.event(0.4, -59.0, -63.0, 30, "ALERT: loud", True)
 check(nc.job["kind"] == "e", "the next alerted event within 20 min is a short event clip")
 check(len(nc.job["frames"]) == int(0.4 * 50) + 25, "it has 0.5 s before the event and the event (%d frames)" % len(nc.job["frames"]))
 drain(nc)
-check(sum(1 for n in os.listdir(d) if n.endswith("_e.wav")) == 1, "the event clip is saved")
+check(sum(1 for n in os.listdir(d) if "_e_" in n) == 1, "the event clip is saved")
 nc.event(0.4, -60.0, -64.0, 30, "ignored (snore)", False)
 check(nc.job is None, "an ignored snore does not make an event clip (inside the window interval)")
 clock_ms[0] += 1300 * 1000
@@ -108,6 +108,7 @@ frames(nc5, 100)
 shutil.rmtree(d5)
 open(d5, "w").write("a file where the folder should be")
 for _ in range(4):
+    clock_ms[0] += 11000
     nc5.event(0.4, -59, -63, 30, "ALERT: loud", True)
     try:
         drain(nc5)
@@ -125,7 +126,7 @@ time.localtime = lambda *a: (2000, 1, 1, 0, 0, 5, 5, 1)
 nc6.event(0.4, -59, -63, 30, "ALERT: loud", True)
 drain(nc6)
 time.localtime = _lt
-check(any(n.startswith("t") and n.endswith("_w.wav") for n in os.listdir(d6)), "without a valid clock the file is named by uptime")
+check(any(n.startswith("t") and "_w_" in n for n in os.listdir(d6)), "without a valid clock the file is named by uptime")
 
 # the child loop with night clips on (loopback, one board): the event is recorded, the stream is unaffected
 import struct
@@ -172,6 +173,62 @@ check(len(clips) >= 1 and os.path.exists(os.path.join(f_on, "index.csv")), "the 
 check(not os.path.exists(f_off), "with night clips off nothing is created")
 check(len([x for x in a_on.played if x is not None]) == len([x for x in a_off.played if x is not None]),
       "the played-back stream is the same with and without the recorder")
+
+# the flash file system is slow with many files: nothing is stat'ed at start, names carry the size, few files, spaced clips
+nc7, d7 = make(max_files=4, min_gap_s=10, budget=10 ** 9)
+frames(nc7, 200)
+nc7.event(0.4, -59, -63, 30, "ALERT: loud", True)
+drain(nc7)
+wname = [n for n in os.listdir(d7) if n.endswith(".wav")][0]
+check(wname.endswith("_w_1000.wav") and nc7.files[wname] == 1000 * 640 + 44, "the length is in the file name (%s) and gives the size" % wname)
+_stat = os.stat
+os.stat = lambda *a, **k: (_ for _ in ()).throw(AssertionError("os.stat used"))
+try:
+    nc8 = NightClips(folder=d7, free_fn=lambda: 10 ** 9)
+    check(wname in nc8.files and nc8.files[wname] == 1000 * 640 + 44, "start-up reads the folder once and never stats the files")
+finally:
+    os.stat = _stat
+for i in range(3):
+    clock_ms[0] += 11000
+    nc7.event(0.4, -59, -63, 30, "ALERT: loud", True)
+    drain(nc7)
+nc7.skipped = 0
+nc7.event(0.4, -59, -63, 30, "ALERT: loud", True)
+check(nc7.job is None and nc7.skipped == 1, "a second event clip within 10 s is skipped (one clip per min_gap_s)")
+for i in range(4):
+    clock_ms[0] += 11000
+    nc7.event(0.4, -59, -63, 30, "ALERT: loud", True)
+    drain(nc7)
+check(len([n for n in os.listdir(d7) if n.endswith(".wav")]) <= 4, "never more than max_files files (%d)" % len([n for n in os.listdir(d7) if n.endswith(".wav")]))
+
+# too slow for the monitor: it gives up for the run after 3 slow flash operations
+nc9, d9 = make()
+frames(nc9, 100)
+nc9.event(0.4, -59, -63, 30, "ALERT: loud", True)
+_us = time.ticks_us
+tick = [0]
+def slow_us():
+    tick[0] += 600000                                  # every call "takes" 600 ms
+    return tick[0]
+time.ticks_us = slow_us
+try:
+    drain(nc9, 1500)
+finally:
+    time.ticks_us = _us
+check(not nc9.on and nc9.job is None, "after 3 flash operations over 400 ms the recorder switches itself off")
+check(not [n for n in os.listdir(d9) if n.endswith(".wav")], "...and removes the half-written clip")
+
+# not started in a crash loop
+from helpers import bootinfo
+bootinfo._crashes = 2
+cfg = config.load("/nonexistent")
+cfg["nightclips"].update({"enabled": True, "folder": os.path.join(tmp, "loopguard")})
+try:
+    child.run(cfg, Audio(), LoopbackNet(), None)
+except KeyboardInterrupt:
+    pass
+bootinfo._crashes = 0
+check(not os.path.exists(os.path.join(tmp, "loopguard")), "after 2 crashes in a row the child does not start the recorder")
 
 shutil.rmtree(tmp, ignore_errors=True)
 common.finish()

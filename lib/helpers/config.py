@@ -66,7 +66,9 @@ DEFAULTS = {
     },
     "nightclips": {            # child unit: keep audio clips of the night for analysis (pc/deploy.py --clips); see helpers/nightclips.py
         "enabled": False,
-        "budget": 9000000,       # bytes of clips at most
+        "budget": 6000000,       # bytes of clips at most
+        "max_files": 60,         # the flash file system gets slow with many files
+        "min_gap_s": 10,         # at most one event clip per this long
         "min_free": 4000000,     # bytes of flash always left free
         "window_s": 20,          # a continuous window, to see the rhythm of the snoring
         "window_every_s": 1200,  # at most one window per this long
