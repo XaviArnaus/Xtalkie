@@ -4,6 +4,9 @@ Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and 
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
 ## 0.8.1
+- `bin/xtalkie`: one bash command for the PC tools (install, ports, deploy, watch, reset, settime, clock-probe, events,
+  versions, test, help), with settings in `.env` (`.env.example`; port, WiFi name and password, NIGHT), a check that
+  mpremote is installed (offers to install it), and a check that the port exists. Works with macOS's bash 3.2.
 - The boot line now says where the time came from and what the ESP32's own clock was before: serial
   `[clock] 2026-11-27 09:18:09 (source: chip; the ESP32's own clock had been lost)` and, in `events.csv`, `...,clock=chip,sysclock=lost`
   (`kept` after a restart, `lost` after a power cut). A switch-off test is read from the `boot` line in `events.csv`,

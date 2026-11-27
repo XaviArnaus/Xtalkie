@@ -1,3 +1,6 @@
+# your settings for bin/xtalkie (contain the WiFi password); copy .env.example instead
+.env
+
 # per-board settings: contain the WiFi password and the role of THIS board (copy config.example.json instead)
 config.json
 state.json

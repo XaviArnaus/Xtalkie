@@ -73,6 +73,27 @@ The boards run the MicroPython build with the `amoled` display module from
 `firmware_2026_05_02.bin` (MicroPython 1.28 preview, ESP-IDF 5.5.2). The binary is not part of this repository.
 Board: Waveshare ESP32-S3-Touch-AMOLED-1.8, original revision (SH8601 panel, FT3168 touch).
 
+## The `xtalkie` command (everything you run on the computer)
+
+`bin/xtalkie <command> [arguments]` wraps the tools in `pc/` and `tools/`; `bin/xtalkie help` lists the commands and
+`bin/xtalkie help <command>` explains one. Put it on your PATH with a symlink if you like
+(`ln -s "$PWD/bin/xtalkie" ~/bin/xtalkie`). First time: `bin/xtalkie install` (or `install --venv`, which keeps the
+modules in a private `.venv`), then copy `.env.example` to `.env` and fill in the port, the WiFi name and password
+(`.env` is ignored by git).
+
+```
+xtalkie ports                      the serial ports (the default from .env is marked)
+xtalkie deploy parent              copy the code, write the config, set the clock (everything else comes from .env)
+xtalkie deploy child --no-night    ... a deploy without the watchdog; --night is the default (NIGHT=1 in .env)
+xtalkie watch [--log f] [--reset]  the serial output, across restarts
+xtalkie events -o child.csv        the board's events.csv, after a night
+xtalkie settime | reset | clock-probe | versions | test | install
+```
+
+The port is the first argument that looks like one (`/dev/cu.usbmodem2101`, `COM5`) or `-p PORT`; it wins over `.env`. With
+no port anywhere, and exactly one board plugged in, that board is used. A port that is not there is an error that lists
+the ports found.
+
 ## Preparing a board (once per board; Thonny holds only one board at a time)
 
 1. Flash the firmware (Thonny: Tools > Options > Interpreter > Install or update MicroPython; if the board is not
