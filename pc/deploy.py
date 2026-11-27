@@ -7,7 +7,10 @@
     python deploy.py COM5 parent --clean        (also deletes the files of the old flat layout)
 
 Close Thonny first (only one program can use the serial port). Needs:  pip install mpremote
-Use --dry-run to only print what would be done.
+A board running with --night is first restarted without its watchdog (it would reset itself about 15 s into the
+copy); the new config.json, written last, turns it back on when --night is given. --no-disarm skips that.
+Use --dry-run to only print what would be done. The board's clock is set from this computer's time
+(local time); --no-clock leaves it alone.
 """
 import argparse
 import json
@@ -15,6 +18,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+
+from settime import board_code as clock_code
 
 LEGACY = ["audio.py", "board.py", "config.py", "es8311.py", "gate2.py", "gfx.py", "log.py", "master.py",
           "net.py", "power.py", "proto.py", "screen.py", "slave.py", "ui.py", "watchdog.py", "disk.py",
@@ -22,6 +28,22 @@ LEGACY = ["audio.py", "board.py", "config.py", "es8311.py", "gate2.py", "gfx.py"
 ROOT_FILES = ["main.py", "README.md"]
 STALE = ["lib/app/master.py", "lib/app/slave.py"]      # renamed in 0.7.0 (child.py, parent.py): not left behind on a board
 DIRS = ["lib", "tools"]
+
+# A board deployed with --night runs a hardware watchdog (auto_reboot). mpremote stops the program, nobody feeds the
+# watchdog, and about 15 s later the board resets in the middle of the copy. The watchdog cannot be switched off
+# while it runs, so the first step is to start the board WITHOUT it: auto_reboot is turned off in its config.json
+# and it restarts. The final config.json (written last) turns it on again when --night is given.
+DISARM = ("import json, machine\n"
+          "try:\n"
+          "    c = json.load(open('/config.json'))\n"
+          "except Exception:\n"
+          "    c = None\n"
+          "if isinstance(c, dict) and c.get('auto_reboot'):\n"
+          "    c['auto_reboot'] = False\n"
+          "    open('/config.json', 'w').write(json.dumps(c))\n"
+          "    print('XT-DISARM restarting without the watchdog')\n"
+          "    machine.reset()\n"
+          "print('XT-DISARM not needed')\n")
 
 
 def git_stamp(src):
@@ -36,6 +58,33 @@ def git_stamp(src):
         return None
 
 
+def disarm_watchdog(port, say=print):
+    """Make sure the board runs without its watchdog before anything is copied. Returns True when it is safe."""
+    base = [sys.executable, "-m", "mpremote", "connect", port]
+    try:
+        r = subprocess.run(base + ["exec", DISARM], capture_output=True, text=True, timeout=40)
+    except subprocess.TimeoutExpired:
+        say("the board did not answer: is Thonny closed and the cable connected?")
+        return False
+    out = r.stdout or ""
+    if "XT-DISARM not needed" in out:
+        return True
+    if "XT-DISARM restarting" not in out:
+        say("could not read the board's config (%s)" % (r.stderr or out).strip()[-200:])
+        return False
+    say("watchdog switched off in the board's config; the board restarts, waiting for it ...")
+    for _ in range(30):
+        time.sleep(1.5)
+        try:
+            r = subprocess.run(base + ["exec", "print('XT-UP')"], capture_output=True, text=True, timeout=20)
+        except subprocess.TimeoutExpired:
+            continue
+        if "XT-UP" in (r.stdout or ""):
+            return True
+    say("the board did not come back after the restart")
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", help="serial port of the board, e.g. COM5 or /dev/ttyACM0")
@@ -47,6 +96,10 @@ def main():
                     help="unattended use: auto_reboot on (restart after a crash or a hang)")
     ap.add_argument("--clean", action="store_true", help="delete the old flat-layout files first")
     ap.add_argument("--no-reset", action="store_true", help="do not restart the board afterwards")
+    ap.add_argument("--no-clock", action="store_true", help="do not set the board's clock from this computer")
+    ap.add_argument("--no-disarm", action="store_true",
+                    help="do not switch the board's watchdog off first (a board deployed with --night would reset itself "
+                         "about 15 s into the copy)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -65,9 +118,16 @@ def main():
 
     def mp(*a, check=True):
         cmd = [sys.executable, "-m", "mpremote", "connect", args.port] + list(a)
-        print(">", " ".join(cmd[3:]))
+        print(">", " ".join(a if len(a) <= 60 else a[:57].replace("\n", " ") + "..." for a in cmd[3:]))
         if not args.dry_run:
             subprocess.run(cmd, check=check)
+
+    if args.no_disarm:
+        pass
+    elif args.dry_run:
+        print("> exec <switch the board's watchdog off first (a --night board resets itself 15 s into a copy)>")
+    elif not disarm_watchdog(args.port):
+        sys.exit("deploy stopped: the board could not be prepared (nothing was copied)")
 
     if args.clean:
         for name in LEGACY:
@@ -107,6 +167,10 @@ def main():
     print("config.json =", json.dumps(cfg))
     mp("fs", "cp", tmp, ":config.json")
     os.unlink(tmp)
+
+    if not args.no_clock:
+        print("setting the board's clock to this computer's time (the logs get a date and time)")
+        mp("exec", clock_code(), check=False)           # needs /lib/board/rtc.py, which was copied above
 
     if not args.no_reset:
         # tell the board a person restarts it (so the child unit shows its start-up screen); old code may lack this

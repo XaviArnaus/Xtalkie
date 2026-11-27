@@ -1,0 +1,503 @@
+#!/usr/bin/env bash
+# xtalkie -- one command for everything you run on the computer: deploy, watch, set the clock, read the logs, ...
+#
+#   bin/xtalkie <command> [arguments]        (bin/xtalkie help    lists the commands)
+#
+# Settings that rarely change live in a .env file next to this folder (see .env.example): the port, the WiFi name and
+# password, whether a deploy is a --night one. Every command takes the port as an argument too, which wins over .env.
+# Written for macOS's bash 3.2 as well as Linux: no associative arrays, no mapfile, no ${var,,}.
+
+set -u
+set -o pipefail
+
+# ---- where the project is (also when this file is reached through a symlink in your PATH) -----------------------------
+src="${BASH_SOURCE[0]}"
+while [ -h "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+ROOT="$(cd -P "$(dirname "$src")/.." && pwd)"
+
+# ---- small helpers -----------------------------------------------------------------------------------------------------
+if [ -t 2 ]; then RED=$'\033[31m'; YEL=$'\033[33m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; OFF=$'\033[0m'; else RED=""; YEL=""; DIM=""; BOLD=""; OFF=""; fi
+
+die()  { printf '%sxtalkie:%s %s\n' "$RED" "$OFF" "$*" >&2; exit 1; }
+warn() { printf '%sxtalkie:%s %s\n' "$YEL" "$OFF" "$*" >&2; }
+note() { printf '%s%s%s\n' "$DIM" "$*" "$OFF" >&2; }
+
+# ---- .env ----------------------------------------------------------------------------------------------------------------
+CFG_PORT=""; CFG_SSID="xtalkie"; CFG_PASSWORD=""; CFG_NIGHT="1"; CFG_PYTHON=""     # the project default WiFi name is xtalkie
+
+load_env() {
+  local f="$ROOT/.env" line key val
+  [ -f "$f" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in ''|'#'*) continue ;; esac
+    case "$line" in *=*) ;; *) continue ;; esac
+    line="${line#export }"
+    key="${line%%=*}"; val="${line#*=}"
+    key="${key// /}"
+    case "$val" in
+      \"*\") val="${val#\"}"; val="${val%\"}" ;;
+      \'*\') val="${val#\'}"; val="${val%\'}" ;;
+    esac
+    case "$key" in
+      PORT) CFG_PORT="$val" ;;
+      WIFI_SSID) CFG_SSID="$val" ;;
+      WIFI_PASSWORD) CFG_PASSWORD="$val" ;;
+      NIGHT) CFG_NIGHT="$val" ;;
+      PYTHON) CFG_PYTHON="$val" ;;
+    esac
+  done < "$f"
+}
+
+# ---- python and mpremote ---------------------------------------------------------------------------------------------------
+PY=""
+
+pick_python() {
+  if [ -n "${XTALKIE_PYTHON:-}" ]; then PY="$XTALKIE_PYTHON"
+  elif [ -n "$CFG_PYTHON" ]; then PY="$CFG_PYTHON"
+  elif [ -x "$ROOT/.venv/bin/python" ]; then PY="$ROOT/.venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then PY="python3"
+  elif command -v python >/dev/null 2>&1; then PY="python"
+  else die "Python not found. Install Python 3, or set PYTHON in .env."
+  fi
+  command -v "$PY" >/dev/null 2>&1 || die "PYTHON=$PY not found in your PATH."
+}
+
+have_mpremote() { "$PY" -m mpremote --version >/dev/null 2>&1; }
+
+# Every command that talks to a board calls this first (not in --dry-run, which touches no board).
+need_mpremote() {
+  have_mpremote && return 0
+  warn "mpremote is not installed (needed to talk to the board)."
+  if [ -t 0 ] && [ -t 2 ]; then
+    printf 'Install it now with "xtalkie install"? [y/N] ' >&2
+    local a=""
+    read -r a
+    case "$a" in
+      y|Y|yes|YES)
+        cmd_install || die "the installation failed."
+        have_mpremote || die "mpremote is still not available."
+        return 0 ;;
+    esac
+  fi
+  die "run:  $0 install"
+}
+
+# ---- ports -----------------------------------------------------------------------------------------------------------------
+# One line per serial port: device|board|description   (board = Espressif's USB id, i.e. our boards)
+detect_ports() {
+  local out rc
+  out="$("$PY" - <<'PYEOF' 2>/dev/null
+import sys
+try:
+    from serial.tools import list_ports
+except ImportError:
+    sys.exit(3)
+for p in sorted(list_ports.comports(), key=lambda p: p.device):
+    d = p.device
+    if "bluetooth" in d.lower() or "debug-console" in d.lower():
+        continue
+    print("%s|%s|%s" % (d, "board" if p.vid == 0x303A else "other", p.description))
+PYEOF
+)"
+  rc=$?
+  if [ $rc -eq 3 ]; then       # no pyserial: look at the usual device names
+    local f
+    for f in /dev/cu.usbmodem* /dev/cu.usbserial* /dev/ttyACM* /dev/ttyUSB*; do
+      [ -e "$f" ] && printf '%s|other|(pyserial not installed: run "xtalkie install")\n' "$f"
+    done
+    return 0
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
+  return 0
+}
+
+default_port() { printf '%s' "${XTALKIE_PORT:-$CFG_PORT}"; }
+
+port_exists() {
+  local p="$1" list
+  [ -e "$p" ] && return 0
+  list="$(detect_ports | cut -d'|' -f1)"
+  case "
+$list
+" in *"
+$p
+"*) return 0 ;; esac
+  return 1
+}
+
+print_ports() {
+  local lines def line dev kind desc mark
+  lines="$(detect_ports)"
+  def="$(default_port)"
+  if [ -z "$lines" ]; then
+    echo "No serial ports found. Check the USB cable (it must carry data) and that the board is plugged in."
+    return 1
+  fi
+  printf '%s\n' "$lines" | while IFS='|' read -r dev kind desc; do
+    mark=" "
+    [ "$dev" = "$def" ] && mark="*"
+    if [ "$kind" = "board" ]; then kind="Xtalkie-type board"; else kind=""; fi
+    printf ' %s %-30s %-20s %s\n' "$mark" "$dev" "$kind" "$desc"
+  done
+  [ -n "$def" ] && echo "   (* = the default port from .env)"
+  return 0
+}
+
+fail_port() {
+  warn "$1"
+  print_ports >&2
+  exit 1
+}
+
+# resolve_port [explicit]  ->  sets PORT. The explicit port must exist. Otherwise the default from .env must exist; with no
+# default (or a default that is not plugged in) the only board found is used, and anything else is an error.
+PORT=""
+DRY=0
+resolve_port() {
+  local want="${1:-}" def boards n
+  def="$(default_port)"
+  if [ "$DRY" = 1 ]; then PORT="${want:-${def:-/dev/PORT}}"; return 0; fi
+  if [ -n "$want" ]; then
+    port_exists "$want" || fail_port "the port $want is not there."
+    PORT="$want"; return 0
+  fi
+  if [ -n "$def" ] && port_exists "$def"; then PORT="$def"; return 0; fi
+  boards="$(detect_ports | grep '|board|' | cut -d'|' -f1)"
+  n=0; [ -n "$boards" ] && n="$(printf '%s\n' "$boards" | wc -l | tr -d ' ')"
+  if [ "$n" = 1 ]; then
+    PORT="$boards"
+    if [ -n "$def" ]; then warn "the default port $def is not there; using the only board found: $PORT"
+    else note "port: $PORT (the only board found; put PORT=$PORT in .env to make it the default)"; fi
+    return 0
+  fi
+  if [ -n "$def" ]; then fail_port "the default port $def (from .env) is not there."; fi
+  if [ "$n" = 0 ]; then fail_port "no board found. Plug it in, or give the port."; fi
+  fail_port "more than one board found: give the port, e.g. $0 ${CURRENT_CMD:-watch} <port>."
+}
+
+is_port_arg() { case "$1" in /dev/*|COM[0-9]*|com[0-9]*|tty*) return 0 ;; *) return 1 ;; esac; }
+
+# need_value <flag> <value-or-empty>
+need_value() { [ -n "${2:-}" ] || die "$1 needs a value."; }
+
+CURRENT_CMD=""
+
+# ---- commands ----------------------------------------------------------------------------------------------------------------
+cmd_install() {
+  local sys=0 venv=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --break-system-packages) sys=1 ;;
+      --venv) venv=1 ;;
+      -h|--help) help_for install; return 0 ;;
+      *) die "install: unknown argument $1" ;;
+    esac
+    shift
+  done
+  if [ $venv = 1 ]; then
+    local base="$PY"
+    [ -x "$ROOT/.venv/bin/python" ] || { echo "creating $ROOT/.venv ..."; "$base" -m venv "$ROOT/.venv" || die "could not create the virtual environment."; }
+    PY="$ROOT/.venv/bin/python"
+    echo "installing into $ROOT/.venv (xtalkie uses it automatically from now on)"
+  fi
+  local flag=""
+  [ $sys = 1 ] && flag="--break-system-packages"
+  local log; log="$(mktemp)"
+  if "$PY" -m pip install ${flag:+"$flag"} -r "$ROOT/pc/requirements.txt" 2>&1 | tee "$log"; then
+    rm -f "$log"; return 0
+  fi
+  if grep -q "externally-managed-environment" "$log"; then
+    warn "this Python does not allow installing modules system-wide. Either:"
+    warn "  $0 install --venv                       (recommended: a private .venv in the project)"
+    warn "  $0 install --break-system-packages      (overrides the protection; not recommended)"
+  fi
+  rm -f "$log"
+  return 1
+}
+
+cmd_ports() {
+  [ $# -gt 0 ] && case "$1" in -h|--help) help_for ports; return 0 ;; esac
+  print_ports
+}
+
+# commands that take just an optional port: settime, clock-probe, reset
+simple_port_args() {
+  PORT_ARG=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for "$CURRENT_CMD"; exit 0 ;;
+      -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
+      *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "$CURRENT_CMD: unknown argument $1"; fi ;;
+    esac
+    shift
+  done
+}
+
+cmd_settime() {
+  CURRENT_CMD=settime
+  simple_port_args "$@"
+  need_mpremote; resolve_port "$PORT_ARG"
+  "$PY" "$ROOT/pc/settime.py" "$PORT"
+}
+
+cmd_clock_probe() {
+  CURRENT_CMD=clock-probe
+  simple_port_args "$@"
+  need_mpremote; resolve_port "$PORT_ARG"
+  "$PY" -m mpremote connect "$PORT" run "$ROOT/tools/clock_probe.py"
+}
+
+cmd_reset() {
+  CURRENT_CMD=reset
+  simple_port_args "$@"
+  need_mpremote; resolve_port "$PORT_ARG"
+  "$PY" -m mpremote connect "$PORT" reset
+}
+
+cmd_watch() {
+  CURRENT_CMD=watch
+  local log="" reset=""
+  PORT_ARG=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for watch; return 0 ;;
+      -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
+      -l|--log) need_value "$1" "${2:-}"; log="$2"; shift ;;
+      --reset) reset="--reset" ;;
+      *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "watch: unknown argument $1"; fi ;;
+    esac
+    shift
+  done
+  need_mpremote; resolve_port "$PORT_ARG"
+  "$PY" "$ROOT/pc/watch.py" "$PORT" ${log:+--log "$log"} ${reset:+"$reset"}
+}
+
+cmd_events() {
+  CURRENT_CMD=events
+  local out="" old=0 file="events.csv"
+  PORT_ARG=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for events; return 0 ;;
+      -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
+      -o|--out) need_value "$1" "${2:-}"; out="$2"; shift ;;
+      --old) old=1 ;;
+      *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "events: unknown argument $1"; fi ;;
+    esac
+    shift
+  done
+  [ $old = 1 ] && file="events.old.csv"
+  need_mpremote; resolve_port "$PORT_ARG"
+  note "Reading stops the program on the board; a unit deployed with --night restarts by itself about 15 s later."
+  if [ -n "$out" ]; then
+    "$PY" -m mpremote connect "$PORT" fs cat ":$file" > "$out" || die "could not read $file from the board."
+    echo "wrote $(wc -l < "$out" | tr -d ' ') lines to $out"
+  else
+    "$PY" -m mpremote connect "$PORT" fs cat ":$file"
+  fi
+}
+
+cmd_versions() {
+  CURRENT_CMD=versions
+  local ports=() flags=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for versions; return 0 ;;
+      --no-reset) flags+=("$1") ;;
+      -p|--port) need_value "$1" "${2:-}"; ports+=("$2"); shift ;;
+      *) if is_port_arg "$1"; then ports+=("$1"); else die "versions: unknown argument $1"; fi ;;
+    esac
+    shift
+  done
+  need_mpremote
+  local p
+  for p in ${ports[@]+"${ports[@]}"}; do port_exists "$p" || fail_port "the port $p is not there."; done
+  note "Reading stops the program on each board; they are restarted afterwards (unless --no-reset)."
+  "$PY" "$ROOT/pc/versions.py" ${flags[@]+"${flags[@]}"} ${ports[@]+"${ports[@]}"}
+}
+
+cmd_deploy() {
+  CURRENT_CMD=deploy
+  local role="" ssid="$CFG_SSID" pass="$CFG_PASSWORD" night="$CFG_NIGHT"
+  local extra=()
+  PORT_ARG=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for deploy; return 0 ;;
+      child|parent|loopback|play|idle|master|slave)
+        [ -z "$role" ] || die "deploy: one role only (got $role and $1)"; role="$1" ;;
+      -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
+      --ssid) need_value "$1" "${2:-}"; ssid="$2"; shift ;;
+      --password) need_value "$1" "${2:-}"; pass="$2"; shift ;;
+      --night) night=1 ;;
+      --no-night) night=0 ;;
+      --dry-run) DRY=1; extra+=("$1") ;;
+      --clean|--no-reset|--no-clock|--no-disarm) extra+=("$1") ;;
+      *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "deploy: unknown argument $1 (try: $0 help deploy)"; fi ;;
+    esac
+    shift
+  done
+  [ -n "$role" ] || die "deploy: which role? $0 deploy child|parent|loopback|play|idle [port] [options]"
+
+  local wifi=0
+  case "$role" in child|parent|master|slave) wifi=1 ;; esac
+  if [ $wifi = 1 ]; then
+    [ -n "$ssid" ] || die "deploy: no WiFi name. Put WIFI_SSID in .env or use --ssid."
+    if [ -z "$pass" ]; then
+      if [ -t 0 ] && [ "$DRY" = 0 ]; then
+        printf 'WiFi password for "%s" (8+ characters, not shown): ' "$ssid" >&2
+        read -r -s pass; echo >&2
+      else
+        die "deploy: no WiFi password. Put WIFI_PASSWORD in .env or use --password."
+      fi
+    fi
+    [ "${#pass}" -ge 8 ] || die "deploy: the WiFi password needs at least 8 characters (WPA2)."
+  fi
+
+  local dargs=() night_txt="off"
+  case "$night" in 1|true|yes|on|TRUE|YES|ON) dargs+=(--night); night_txt="on" ;; esac
+  [ $wifi = 1 ] && dargs+=(--ssid "$ssid" --password "$pass")
+
+  [ "$DRY" = 1 ] || need_mpremote
+  resolve_port "$PORT_ARG"
+  if [ $wifi = 1 ]; then
+    printf '%sDeploying%s %s to %s  (night: %s, WiFi: %s)\n' "$BOLD" "$OFF" "$role" "$PORT" "$night_txt" "$ssid" >&2
+  else
+    printf '%sDeploying%s %s to %s  (night: %s)\n' "$BOLD" "$OFF" "$role" "$PORT" "$night_txt" >&2
+  fi
+
+  "$PY" "$ROOT/pc/deploy.py" "$PORT" "$role" ${dargs[@]+"${dargs[@]}"} ${extra[@]+"${extra[@]}"}
+  local rc=$?
+  [ $rc = 0 ] && [ "$DRY" = 0 ] && note "Next: $0 watch   (or $0 events, after a night)"
+  return $rc
+}
+
+cmd_test() {
+  [ $# -gt 0 ] && case "$1" in -h|--help) help_for test; return 0 ;; esac
+  "$PY" "$ROOT/tests/run_all.py"
+}
+
+# ---- help ----------------------------------------------------------------------------------------------------------------------
+help_all() {
+  cat <<EOF
+${BOLD}xtalkie${OFF} -- the PC side of the project in one command.
+
+Usage:  $0 <command> [arguments]        (every command also takes -h / --help)
+
+Commands:
+  install                 Install the Python modules the tools need (mpremote). --venv: into a private .venv.
+  ports                   List the serial ports, mark the default one and the boards.
+  deploy <role> [port]    Copy the code to a board and write its config. Roles: child, parent, loopback, play, idle.
+  watch [port]            Show the board's serial output; survives restarts. --log FILE, --reset.
+  reset [port]            Restart the board (a hard reset).
+  settime [port]          Set the board's clock from this computer's time.
+  clock-probe [port]      Show what clocks the board has (I2C scan, clock chip, ESP32 clock).
+  events [port]           Print the board's events.csv (-o FILE to save it, --old for events.old.csv).
+  versions [port ...]     List the version and role of the connected boards.
+  test                    Run the host-side tests (no board needed).
+  help [command]          This text, or help for one command.
+
+Settings (.env in the project folder; copy .env.example):
+  PORT, WIFI_SSID, WIFI_PASSWORD, NIGHT (1 = deploys are --night ones unless you say --no-night), PYTHON.
+  The port can also be given to any command, as the first thing that looks like one (/dev/cu.usbmodem2101, COM5) or
+  with -p / --port. With no port anywhere and exactly one board plugged in, that board is used.
+
+Examples:
+  $0 deploy parent                    everything from .env, night mode on
+  $0 deploy child --no-night          a test deploy without the watchdog
+  $0 watch --log night.txt            watch the default board and keep a copy
+  $0 events -o child_night.csv        read the log after a night
+EOF
+}
+
+help_for() {
+  case "$1" in
+    install) cat <<EOF
+Usage: $0 install [--venv] [--break-system-packages]
+Installs pc/requirements.txt (mpremote, which brings pyserial). Newer Python installations refuse to install modules
+system-wide: --venv creates a private .venv in the project and installs there (xtalkie then uses it by itself);
+--break-system-packages overrides the protection (not recommended).
+EOF
+    ;;
+    ports) cat <<EOF
+Usage: $0 ports
+Lists the serial ports. '*' marks the default port from .env, and "Xtalkie-type board" the Espressif USB devices.
+EOF
+    ;;
+    deploy) cat <<EOF
+Usage: $0 deploy <role> [port] [options]
+Roles: child, parent, loopback, play, idle (master / slave are the old names of child / parent).
+Copies main.py, lib/ and tools/ to the board, writes its config.json, sets its clock, and restarts it.
+A board that runs with the watchdog is first restarted without it, so the copy is not cut short.
+Options:
+  --ssid NAME, --password PW   WiFi settings (default: WIFI_SSID / WIFI_PASSWORD from .env; asked for if missing)
+  --night / --no-night         unattended use: restart after a crash or hang (default: NIGHT from .env, 1 if unset)
+  --clean                      also delete the files of the old flat layout
+  --no-reset                   do not restart the board afterwards
+  --no-clock                   do not set the board's clock
+  --no-disarm                  do not switch the watchdog off first
+  --dry-run                    only print what would be done (needs no board)
+  -p, --port PORT              or give the port as a plain argument
+Close Thonny first: only one program can use the port.
+EOF
+    ;;
+    watch) cat <<EOF
+Usage: $0 watch [port] [--log FILE] [--reset]
+Shows the board's serial output and keeps going when the board restarts (the port disappears and comes back).
+--log FILE   also write everything to FILE
+--reset      send one soft reboot at the start: runs main.py on a board that sits idle at the Python prompt.
+             (Not the default: it interrupts a program that is running.)
+The first lines after a restart can be missing: the port takes about a second to come back. events.csv has them all.
+EOF
+    ;;
+    reset) echo "Usage: $0 reset [port]    Restarts the board (a hard reset, not marked as done by a person)." ;;
+    settime) cat <<EOF
+Usage: $0 settime [port]
+Sets the board's clock chip and its ESP32 clock to this computer's local time, and prints what the board answers.
+Stops the program on the board (a --night unit restarts by itself about 15 s later).
+EOF
+    ;;
+    clock-probe|clock_probe) echo "Usage: $0 clock-probe [port]    Runs tools/clock_probe.py on the board: I2C devices, the clock chip, the ESP32 clock." ;;
+    events) cat <<EOF
+Usage: $0 events [port] [-o FILE] [--old]
+Prints the board's events.csv (or saves it with -o FILE). --old reads events.old.csv, the previous log file.
+Reading stops the program on the board; a --night unit restarts by itself about 15 s later.
+EOF
+    ;;
+    versions) cat <<EOF
+Usage: $0 versions [port ...] [--no-reset]
+Lists the software version and role of the connected boards (all of them when no port is given). Each board is
+restarted afterwards unless --no-reset.
+EOF
+    ;;
+    test) echo "Usage: $0 test    Runs python tests/run_all.py: every host-side test, no board needed (about 2 minutes)." ;;
+    *) die "no help for '$1'. Commands: install ports deploy watch reset settime clock-probe events versions test" ;;
+  esac
+}
+
+# ---- main --------------------------------------------------------------------------------------------------------------------
+load_env
+pick_python
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  help|-h|--help|"")
+    if [ $# -gt 0 ]; then help_for "$1"; else help_all; fi ;;
+  install) cmd_install "$@" ;;
+  ports) cmd_ports "$@" ;;
+  settime) cmd_settime "$@" ;;
+  clock-probe|clock_probe) cmd_clock_probe "$@" ;;
+  watch) cmd_watch "$@" ;;
+  reset) cmd_reset "$@" ;;
+  events) cmd_events "$@" ;;
+  versions) cmd_versions "$@" ;;
+  deploy) cmd_deploy "$@" ;;
+  test) cmd_test "$@" ;;
+  *) die "unknown command '$cmd'. Try: $0 help" ;;
+esac

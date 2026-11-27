@@ -3,6 +3,32 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.8.1
+- `bin/xtalkie`: one bash command for the PC tools (install, ports, deploy, watch, reset, settime, clock-probe, events,
+  versions, test, help), with settings in `.env` (`.env.example`; port, WiFi name and password, NIGHT), a check that
+  mpremote is installed (offers to install it), and a check that the port exists. Works with macOS's bash 3.2.
+- The boot line now says where the time came from and what the ESP32's own clock was before: serial
+  `[clock] 2026-11-27 09:18:09 (source: chip; the ESP32's own clock had been lost)` and, in `events.csv`, `...,clock=chip,sysclock=lost`
+  (`kept` after a restart, `lost` after a power cut). A switch-off test is read from the `boot` line in `events.csv`,
+  so there is no race with the serial output: `chip` + `lost` = the chip kept the time while the power was off.
+
+## 0.8.0
+- Date and time in every log line: `events.csv` lines are now `YYYY-MM-DD HH:MM:SS,uptime_s,source,text` (`-` when the
+  clock was never set). Older lines keep their format (first field = uptime), so a file can hold both.
+- Clocks, from what the probe found on the boards (`tools/clock_probe.py`): the PCF85063 clock chip is there (I2C 0x51),
+  keeps counting while the board is off, and was never set; the ESP32's own clock survives a restart but is lost when
+  the power is cut. New: `drivers/pcf85063.py`, `board/rtc.py` (at boot the chip wins when its flag is clear; an
+  untrusted chip is set from the ESP32 clock when that is valid; the result is printed as `[clock] ...`),
+  `helpers/clock.py` (the stamp).
+- `pc/settime.py` sets both clocks from the computer's local time (no time zone, no daylight saving). `pc/deploy.py`
+  does it after copying the files (`--no-clock` skips it). The long `exec` text is shortened in deploy's output.
+- `pc/deploy.py` first restarts a board that runs with `--night` WITHOUT its watchdog (it turns `auto_reboot` off in the
+  board's config.json and waits for the restart). Before, the unfed watchdog reset the board about 15 s into the copy and
+  the USB connection dropped. The final config.json, written last, turns it on again with `--night`. `--no-disarm` skips it.
+- UNVERIFIED on the boards: setting the chip, and that a chip we have set keeps the time over a switch-off (the probe
+  showed it counts on while the board is off; the flag should stay clear after a set).
+- Next in this line (point 4, WiFi client mode): when the child joins a home WiFi, set the clock from the network.
+
 ## 0.7.0
 - Rename: the roles `master` / `slave` are now `child` / `parent` (the unit in the child's room and the unit with the
   parent), because the parent unit has the control and the child unit only sends. No change in behaviour. Everywhere:

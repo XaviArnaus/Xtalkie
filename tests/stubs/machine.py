@@ -19,6 +19,13 @@ def reset():
 class RTC:
     MEM = {"b": b""}                    # RTC memory: shared by all instances, survives "resets" like the real one
 
+    DT = {"t": (2000, 1, 1, 5, 0, 0, 0, 0)}   # the ESP32's own clock, as set by datetime()
+
+    def datetime(self, t=None):
+        if t is None:
+            return RTC.DT["t"]
+        RTC.DT["t"] = tuple(t)
+
     def memory(self, data=None):
         if data is None:
             return RTC.MEM["b"]

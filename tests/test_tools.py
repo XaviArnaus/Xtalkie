@@ -119,6 +119,7 @@ check("build stamp:" in p.stdout and (stamped or "fs rm :lib/_build.py" in p.std
       "deploy.py stamps the commit on the board (or removes an old stamp when git is missing)")
 p2 = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", "play", "--dry-run"], capture_output=True, text=True)
 check(p2.returncode == 0 and '"role": "play"' in p2.stdout, "pc/deploy.py accepts the play role")
+check("switch the board's watchdog off first" in p.stdout, "deploy.py switches the watchdog off before copying (a --night board resets itself 15 s in)")
 check('"auto_reboot": true' in p.stdout and "fs rm :board.py" in p.stdout, "deploy.py --night writes auto_reboot and --clean removes the old files")
 shutil.rmtree(tmp, ignore_errors=True)
 finish()
