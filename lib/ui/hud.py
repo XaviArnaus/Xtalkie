@@ -17,7 +17,7 @@ from ui import menu
 OFF, STATUS, ALARM, LINKLOST, MENU, TEST, PREVIEW, BOOT, ROLE, NOTE = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 MUTE_TAPS = 3                                     # this many quick BOOT taps on the parent unit switch its sound off / on
 NOTE_MS = 3000
-MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "ROLE", "EXIT")
+MENU_ITEMS = ("TEST LIVE", "TEST ALARM", "VOLUME", "MIC", "CLIPS", "ROLE", "EXIT")
 LONG_MS = menu.LONG_MS
 BATT_REFRESH_MS = 30000
 volume_actions = menu.volume_actions          # moved to ui/menu.py (shared with the play mode); kept importable from here
@@ -284,12 +284,15 @@ class Hud:
             idx = self.idx
             gl = self.actions.get("get_level")
             gs = self.actions.get("get_sens")
+            gc = self.actions.get("get_clips")
             labels = []
             for n in MENU_ITEMS:
                 if n == "VOLUME" and gl:
                     n = "VOLUME %d" % gl()
                 elif n == "MIC" and gs:
                     n = "MIC %d" % gs()
+                elif n == "CLIPS" and gc:
+                    n = "CLIPS " + {0: "OFF", 1: "ON", 2: "STOP"}.get(gc(), "?")
                 labels.append(n)
             self._present(lambda g: S.draw_menu(g, labels, idx), u["brightness"])
         elif s == TEST:
@@ -399,6 +402,11 @@ class Hud:
             self._go(TEST, now, 6000 if not ok else None)
         elif item == "MIC":
             fn = self.actions.get("sens_step")
+            if fn:
+                fn()
+            self._go(MENU, now, 20000)
+        elif item == "CLIPS":
+            fn = self.actions.get("clips_step")
             if fn:
                 fn()
             self._go(MENU, now, 20000)

@@ -3,6 +3,14 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.10.2
+- A CLIPS item in the parent's menu (MENU: TEST LIVE, TEST ALARM, VOLUME, MIC, CLIPS, ROLE, EXIT) switches the child's night
+  clips on or off, so a unit can be set up for the night without a computer. It shows `CLIPS ON`, `OFF`, `STOP` (the child
+  switched itself off because the flash was too slow) or `?` (an older child). New command `CMD_CLIPS` and a clips byte after the
+  restart byte of the heartbeat (older units ignore it). The child remembers the choice in `state.json`; it is only used
+  while the deployed setting (`--clips` / `--no-clips`) is the one it was made under, so a new deploy always wins.
+  Works whether or not the child was deployed with `--clips`. `events.csv`: `night clips on (menu)` / `off (menu)`.
+
 ## 0.10.1
 - Night clips made safe after the first real run: with 150+ files in `/night` the flash file system took 1-13 s for a
   single operation (`clipw` in the minute line; the microphone loses audio meanwhile) and a `stat` of every file at

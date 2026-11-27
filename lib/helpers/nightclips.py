@@ -240,6 +240,18 @@ class NightClips:
         except Exception:
             pass
 
+    def stop(self):
+        """Switch off on purpose (the menu): a clip being written is thrown away, what is saved stays."""
+        j = self.job
+        self.job = None
+        self.on = False
+        if j is not None and j.get("f") is not None:
+            try:
+                j["f"].close()
+            except Exception:
+                pass
+            self._remove(j["name"] or "")
+
     def _give_up(self, why):
         """Too slow for the monitor: stop for this run (what is saved stays)."""
         j = self.job

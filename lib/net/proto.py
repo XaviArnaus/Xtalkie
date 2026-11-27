@@ -10,6 +10,7 @@ T_HELLO = 4      # parent -> child, once a second: lets the child learn the pare
 T_CMD = 5        # parent -> child: a command (CMD_LIVE = stream the live microphone for N seconds)
 CMD_LIVE = 1
 CMD_SENS = 2     # set the child unit's sensitivity level 1..5 (arg)
+CMD_CLIPS = 3    # night clips on (arg 1) or off (arg 0) on the child unit
 F_PREROLL = 1    # audio from before the alert (sent so the start of a word is not lost)
 F_TEST = 2       # audio of a live test (the parent shows the test screen, not the alert)
 
@@ -52,16 +53,19 @@ def _ver_parse(payload, offset):
         return None
 
 
-def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0, version=None, restart=None):
+def pack_hb(seq, gate_open, floor_db, batt=None, charging=False, sens=0, version=None, restart=None, clips=None):
     """restart (0..255) follows the version field: 0 = started by a person, n > 0 = restarted by itself (see
-    helpers/bootinfo.restart_code). Without a version an empty version field keeps the layout."""
+    helpers/bootinfo.restart_code). Without a version an empty version field keeps the layout. clips follows the restart
+    byte: 0 = night clips off, 1 = on, 2 = switched itself off (too slow)."""
     f = 0 if floor_db is None else int(floor_db * 10)
     b = 255 if batt is None else int(batt)
     body = struct.pack("<BhBBB", 1 if gate_open else 0, f, b, 1 if charging else 0, sens)
-    if version or restart is not None:
+    if version or restart is not None or clips is not None:
         body += _ver_bytes(version or "")
-    if restart is not None:
-        body += bytes([min(255, max(0, int(restart)))])
+    if restart is not None or clips is not None:
+        body += bytes([min(255, max(0, int(restart or 0)))])
+    if clips is not None:
+        body += bytes([min(255, max(0, int(clips)))])
     return pack(T_HB, seq, body)
 
 
@@ -95,6 +99,16 @@ def parse_hb_restart(payload):
     if n > VER_MAX or len(payload) <= 7 + n:
         return None
     return payload[7 + n]
+
+
+def parse_hb_clips(payload):
+    """The child's night clips state (0 off, 1 on, 2 stopped by itself), or None (older unit)."""
+    if len(payload) <= 6:
+        return None
+    n = payload[6]
+    if n > VER_MAX or len(payload) <= 8 + n:
+        return None
+    return payload[8 + n]
 
 
 def pack_hello(seq, batt=None, charging=False, version=None):

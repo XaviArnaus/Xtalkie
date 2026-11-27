@@ -67,7 +67,18 @@ def run(cfg, audio, net, hud=None):
         net.send(proto.pack_cmd(cseq, proto.CMD_SENS, sens_known), child)
         return sens_known
 
-    hud.set_actions(test_live=_act_test, alarm_preview=lambda: None if hud.sound_muted() else audio.beep(),
+    clips_known = None                              # None: an older child that does not report it
+
+    def _clips_step():
+        nonlocal cseq, clips_known
+        if clips_known is None:
+            return None
+        clips_known = 0 if clips_known == 1 else 1
+        cseq += 1
+        net.send(proto.pack_cmd(cseq, proto.CMD_CLIPS, clips_known), child)
+        return clips_known
+
+    hud.set_actions(test_live=_act_test, clips_step=_clips_step, get_clips=lambda: clips_known, alarm_preview=lambda: None if hud.sound_muted() else audio.beep(),
                     unmute_beep=lambda: audio.beep(n=1),
                     sens_step=_sens_step, get_sens=lambda: sens_known, **volume_actions(audio))
 
@@ -110,6 +121,9 @@ def run(cfg, audio, net, hud=None):
                                 log.write("parent", "child restarted by itself,crashes=%d" % (rc - 1))
                         if child_state[4]:
                             sens_known = child_state[4]
+                        ck = proto.parse_hb_clips(body)
+                        if ck is not None:
+                            clips_known = ck
                 elif ptype == proto.T_AUDIO:
                     last_audio_rx = now
                     if drop_stream:

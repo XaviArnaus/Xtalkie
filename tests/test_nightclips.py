@@ -1,4 +1,5 @@
 """Night clips: event clips and 20 s windows, the budget, the eviction, one job at a time, never breaking the monitor."""
+import json
 import os
 import shutil
 import struct
@@ -229,6 +230,93 @@ except KeyboardInterrupt:
     pass
 bootinfo._crashes = 0
 check(not os.path.exists(os.path.join(tmp, "loopguard")), "after 2 crashes in a row the child does not start the recorder")
+
+# the menu: the parent sends CMD_CLIPS, the child switches (and remembers), the heartbeat reports it back
+from net import proto
+hb = proto.pack_hb(1, False, -80.0, 50, False, 3, "0.10.2 abc1234", 2, 1)
+body = proto.parse(hb)[3]
+check(proto.parse_hb_clips(body) == 1 and proto.parse_hb_restart(body) == 2 and proto.parse_hb_version(body) == "0.10.2 abc1234"
+      and proto.parse_hb(body)[4] == 3, "the heartbeat carries the clips state without disturbing the other fields")
+old_hb = proto.parse(proto.pack_hb(1, False, -80.0, 50, False, 3, "0.9", 2))[3]
+check(proto.parse_hb_clips(old_hb) is None, "a heartbeat of an older child has no clips field (None)")
+check(proto.parse(proto.pack_cmd(1, proto.CMD_CLIPS, 1))[3] == bytes([proto.CMD_CLIPS, 1]), "CMD_CLIPS is a normal command")
+
+import helpers.config as hc
+hc.STATE = os.path.join(tmp, "state.json")
+
+
+class CmdNet:
+    """A parent that sends the given commands one after the other and records the heartbeats it gets."""
+    def __init__(self, cmds):
+        self.cmds, self.hbs, self.peer_set = list(cmds), [], False
+    def ensure(self): pass
+    def recv(self):
+        if self.n // 50 != self.hello_at:                 # a HELLO every second keeps the link up
+            self.hello_at = self.n // 50
+            return proto.pack(proto.T_HELLO, 1, bytes([255, 0])), ("1.2.3.4", 5)
+        if self.cmds and self.n > self.cmds[0][0]:
+            return proto.pack_cmd(1, proto.CMD_CLIPS, self.cmds.pop(0)[1]), ("1.2.3.4", 5)
+        return None
+    n = 0
+    hello_at = -1
+    def send(self, data, to):
+        info = proto.parse(data)
+        if info and info[0] == proto.T_HB:
+            self.hbs.append(proto.parse_hb_clips(info[3]))
+        return True
+
+
+def run_with_cmds(enabled, cmds, frames_n=1800):
+    cfg = config.load("/nonexistent")
+    cfg["nightclips"].update({"enabled": enabled, "folder": os.path.join(tmp, "menu")})
+    cfg["child"]["hb_ms"] = 200
+    net = CmdNet(cmds)
+
+    class A:
+        i = 0
+        def open_rx(self): pass
+        def close(self): pass
+        def read_frame(self):
+            if self.i >= frames_n:
+                raise KeyboardInterrupt
+            self.i += 1
+            net.n = self.i
+            clock_ms[0] += 20
+            return bytes(640), -79.0, 100
+    a = A()
+    try:
+        child.run(cfg, a, net, None)
+    except KeyboardInterrupt:
+        pass
+    return net
+
+
+net = run_with_cmds(False, [(300, 1), (900, 0)])
+seen = [x for x in net.hbs if x is not None]
+check(seen[0] == 0 and 1 in seen and seen[-1] == 0, "deployed off: the menu switches it on, then off again (heartbeat reports 0, 1, 0)")
+check(json.load(open(hc.STATE)).get("clips") == 0, "the choice is remembered in state.json")
+net = run_with_cmds(False, [(300, 1)])
+check(json.load(open(hc.STATE)).get("clips") == 1, "switched on from the menu is remembered")
+net = run_with_cmds(False, [])
+seen = [x for x in net.hbs if x is not None]
+check(seen and seen[0] == 1, "after a restart the remembered choice is used (on) although the deployed setting is off")
+net = run_with_cmds(True, [])
+seen = [x for x in net.hbs if x is not None]
+check(seen and seen[0] == 1, "a deploy that says on starts on")
+hc_state = json.load(open(hc.STATE))
+hc_state["clips"] = 0
+hc_state["clips_cfg"] = 1                          # chosen while the deployed setting was on
+json.dump(hc_state, open(hc.STATE, "w"))
+net = run_with_cmds(True, [])
+check([x for x in net.hbs if x is not None][0] == 0, "the remembered OFF is used while the deployed setting is the same")
+hc_state["clips"] = 1                              # "on" chosen while the deployed setting was on ...
+json.dump(hc_state, open(hc.STATE, "w"))
+net = run_with_cmds(False, [])                     # ... and now a deploy without --clips
+check([x for x in net.hbs if x is not None][0] == 0, "a deploy with another --clips setting wins over an old menu choice")
+
+# the menu item itself
+from ui import hud as _hud
+check("CLIPS" in _hud.MENU_ITEMS, "the parent menu has a CLIPS item")
 
 shutil.rmtree(tmp, ignore_errors=True)
 common.finish()

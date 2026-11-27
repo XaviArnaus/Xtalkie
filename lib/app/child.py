@@ -70,19 +70,47 @@ def run(cfg, audio, net, hud=None):
         log.write("child", "patterns loaded,n=%d" % n_loaded)
     nc = None
     ncfg = cfg.get("nightclips", {})
-    if ncfg.get("enabled") and bootinfo.crashes() >= 2:
-        print("[clips] night clips NOT started: %d crashes in a row (a crash loop must not be made worse)" % bootinfo.crashes())
-        log.write("child", "night clips not started,crashes=%d" % bootinfo.crashes())
-    elif ncfg.get("enabled"):
-        try:
-            nc = NightClips(folder=ncfg.get("folder", "/night"), budget=ncfg["budget"], min_free=ncfg["min_free"],
-                            window_s=ncfg["window_s"], window_every_s=ncfg["window_every_s"],
-                            max_files=ncfg["max_files"], min_gap_s=ncfg["min_gap_s"])
-            print("[clips] night clips ON: %d KB kept at most, %d files now" % (ncfg["budget"] // 1024, len(nc.files)))
-            log.write("child", "night clips on,files=%d" % len(nc.files))
-        except Exception as e:
-            nc = None
-            print("[clips] night clips could not start:", e)
+    cfg_on = bool(ncfg.get("enabled"))
+
+    def set_clips(on, save=True, boot=False):
+        """Night clips on or off (deploy --clips sets the start value; the parent's menu can change it, and the choice
+        is remembered until the next deploy changes the config)."""
+        nonlocal nc
+        if not on:
+            if nc is not None:
+                nc.stop()
+                nc = None
+        elif nc is None or not nc.on:
+            if boot and bootinfo.crashes() >= 2:
+                print("[clips] night clips NOT started: %d crashes in a row (a crash loop must not be made worse)" % bootinfo.crashes())
+                log.write("child", "night clips not started,crashes=%d" % bootinfo.crashes())
+                return
+            try:
+                nc = NightClips(folder=ncfg.get("folder", "/night"), budget=ncfg["budget"], min_free=ncfg["min_free"],
+                                window_s=ncfg["window_s"], window_every_s=ncfg["window_every_s"],
+                                max_files=ncfg["max_files"], min_gap_s=ncfg["min_gap_s"])
+                print("[clips] night clips ON: %d KB kept at most, %d files now" % (ncfg["budget"] // 1024, len(nc.files)))
+                log.write("child", "night clips on%s,files=%d" % ("" if boot else " (menu)", len(nc.files)))
+            except Exception as e:
+                nc = None
+                print("[clips] night clips could not start:", e)
+        if not on:
+            print("[clips] night clips OFF")
+            if not boot:
+                log.write("child", "night clips off (menu)")
+        if save:
+            config.state_save("clips", 1 if on else 0)
+            config.state_save("clips_cfg", 1 if cfg_on else 0)     # valid only while the deployed setting stays the same
+
+    def clips_state():
+        return 0 if nc is None else (1 if nc.on else 2)
+
+    st0 = config.state_load()
+    want_clips = cfg_on
+    if "clips" in st0 and st0.get("clips_cfg") == (1 if cfg_on else 0):
+        want_clips = bool(st0["clips"])
+    if want_clips:
+        set_clips(True, save=False, boot=True)
 
     sens = min(5, max(1, int(config.state_load().get("sens_level", mc["sens_level"]))))
 
@@ -125,7 +153,8 @@ def run(cfg, audio, net, hud=None):
     if loop:
         hud.on_link(True)
         hud.set_actions(alarm_preview=lambda: audio.beep(), **volume_actions(audio))
-        hud.set_actions(sens_step=lambda: apply_sens(sens % 5 + 1), get_sens=lambda: sens)
+        hud.set_actions(sens_step=lambda: apply_sens(sens % 5 + 1), get_sens=lambda: sens,
+                        clips_step=lambda: (set_clips(clips_state() != 1), clips_state())[1], get_clips=clips_state)
     audio.open_rx()
     print("[child] listening%s" % (" (loopback test)" if loop else ""))
     try:
@@ -249,6 +278,8 @@ def run(cfg, audio, net, hud=None):
                             live_until = time.ticks_add(now, min(max(arg, 1), 60) * 1000)
                             print("[child] live test for %d s" % min(max(arg, 1), 60))
                             log.write("child", "live test")
+                        elif cmd == proto.CMD_CLIPS and arg in (0, 1):
+                            set_clips(bool(arg))
                         elif cmd == proto.CMD_SENS and 1 <= arg <= 5:
                             apply_sens(arg)
                             print("[child] sensitivity level %d (threshold %.0f dB, sharp-sound limit %.0f dB)" % (
@@ -277,7 +308,8 @@ def run(cfg, audio, net, hud=None):
                 last_hb = now
                 hbseq += 1
                 bpct, bchg = hud.battery_info(now)
-                net.send(proto.pack_hb(hbseq, gate.gate_open, gate.floor_db, bpct, bchg, sens, my_version, my_restart), peer)
+                net.send(proto.pack_hb(hbseq, gate.gate_open, gate.floor_db, bpct, bchg, sens, my_version, my_restart,
+                                      clips_state()), peer)
 
             if loop and end_pending and not outq:
                 end_pending = False

@@ -225,6 +225,9 @@ usually right; a baby that whimpers at a regular rhythm below the speech brightn
 
 ## Night clips (analysis only)
 
+The parent's menu has a CLIPS item (tap to go to it, hold to switch) that sets the child's clips on or off at any time; the child
+remembers it until the next deploy.
+
 Off by default. `bin/xtalkie deploy child --clips` (or `CLIPS=1` in `.env`) makes the child keep audio in `/night`:
 `YYYYMMDD_HHMMSS_e.wav` (an alerted event, with 0.5 s before it) and `..._w.wav` (a 20 s window, at most one per 20 min,
 to see the rhythm of the snoring), plus `index.csv`. Up to 6 MB and 60 files, 4 MB of flash stay free, at most one event clip per 10 s (the flash file system gets very slow with many files; the recorder switches itself off for the run if it does); when full the oldest event clip

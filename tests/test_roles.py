@@ -159,7 +159,7 @@ def go_to_role_item(h):
 
 h = new_hud()
 st = go_to_role_item(h)
-check(st == ui.MENU and ui.MENU_ITEMS[h.idx] == "ROLE" and len(ui.MENU_ITEMS) == 6,
+check(st == ui.MENU and ui.MENU_ITEMS[h.idx] == "ROLE" and len(ui.MENU_ITEMS) == 7,
       "the menu has 6 items and the ROLE item is reachable (all drawn inside the screen)")
 h._on_button("long", time.ticks_ms())
 check(h.state == ui.ROLE and h.switch.state == "pick", "hold on ROLE opens the role list")
