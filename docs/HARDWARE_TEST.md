@@ -147,6 +147,14 @@ The two crashes are made on purpose with a bad config. Both use `auto_reboot` so
 - [ ] The real night, then `bin/xtalkie clips`; open a `_w.wav` in an audio player: 20 s, snoring rhythm visible. **[send]** the folder (or `index.csv`).
 - [ ] `bin/xtalkie arm` afterwards, or redeploy with `--night`.
 
+## 14. Snore learning (0.10.0)
+
+- [ ] Deploy the child, snore or make a regular sound (or let it run the night). The serial output shows `--- learned snore pattern #1: ...`
+  and `events.csv` a `pattern learned` line; after that the alerts for the same kind of sound stop.
+- [ ] Restart the child (`bin/xtalkie reset`): `[child] 1 snore pattern(s) loaded`; the first 2 bursts may still alert, then quiet.
+- [ ] `bin/xtalkie patterns -o patterns.json` after the night. **[send]** it together with `events.csv`: it shows how many patterns the night produced.
+- [ ] A cough, a voice or a bang next to it still alerts (`loud`, `voice`, `odd`, `impact`).
+
 ## What I would watch most
 
 - Start-up order changed (panel before audio) and the WiFi join no longer waits: both only matter on real boards.

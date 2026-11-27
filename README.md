@@ -88,6 +88,7 @@ xtalkie deploy child --no-night    ... a deploy without the watchdog; --night is
 xtalkie watch [--log f] [--reset]  the serial output, across restarts
 xtalkie events -o child.csv        the board's events.csv, after a night
 xtalkie deploy child --clips       ... and keep night clips for analysis (off by default)
+xtalkie patterns [-o FILE] [--clear] the snore patterns the child has learned (or forget them)
 xtalkie clips [-o DIR] [--clear]   copy the night clips from the board (or delete them)
 xtalkie disarm | arm               watchdog off for a day of tests / on again for the night
 xtalkie settime | reset | clock-probe | clip-probe | versions | test | install
@@ -209,6 +210,18 @@ it can be trusted; a chip that lost its time (flag set) is set from the ESP32's 
 does only that. If the log shows `-`, run `pc/settime.py`. The serial output at start says `[clock] ... (chip)`,
 `(system->chip)`, `(system)` or `not set`. Local time only: no time zone and no daylight saving, so set it again after a
 clock change if you want the logs to follow the wall clock.
+
+## How the child learns snoring
+
+The child does not alert on snoring it has learned. A learned **pattern** is a range of burst length and peak (a snore
+can be 0.2 s or 0.8 s, softer or louder) plus its brightness and rhythm; a burst that fits a pattern is ignored while the
+rhythm holds. Anything else alerts: louder, longer or brighter than every learned burst (`loud`, `long`, `voice`),
+a bang (`impact`), too soon after the last snore (`early`), or simply a burst that fits no pattern (`odd`). When three
+alike unmatched bursts arrive at a regular rhythm they become a new pattern (the snoring changed: the alerts stop by
+themselves); a sound that does not repeat keeps alerting. Up to 8 patterns are kept, saved in `/patterns.json` and reloaded
+at start (`bin/xtalkie patterns` shows them, `--clear` forgets them). The `events.csv` has a `pattern learned` line each time.
+Limits to keep in mind: something regular and harmless that is not speech (a clock, a fan clicking) is learned too, which is
+usually right; a baby that whimpers at a regular rhythm below the speech brightness would be learned as well.
 
 ## Night clips (analysis only)
 

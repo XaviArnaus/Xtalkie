@@ -6,7 +6,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["test_layers.py", "test_gate.py", "test_loopback.py", "test_tools.py", "test_clock_tools.py", "test_clock.py", "test_names.py", "test_wifi.py", "test_version.py", "test_boot.py", "test_roles.py", "test_chooser.py", "test_play.py", "test_link.py", "test_mute.py", "test_nightclips.py", "test_safety.py"]
+TESTS = ["test_layers.py", "test_gate.py", "test_loopback.py", "test_tools.py", "test_clock_tools.py", "test_clock.py", "test_names.py", "test_wifi.py", "test_version.py", "test_boot.py", "test_roles.py", "test_chooser.py", "test_play.py", "test_link.py", "test_mute.py", "test_nightclips.py", "test_patterns.py", "test_safety.py"]
 failed = []
 t0 = time.time()
 for t in TESTS:

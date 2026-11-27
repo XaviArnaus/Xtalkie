@@ -3,6 +3,23 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.10.0
+- Adaptive snore learning (`dsp/gate.py`). The old model needed bursts of 0.5-2.5 s at most 7 s apart, so the real snoring
+  (bursts of 0.1-0.8 s, 7-8 s apart, peak only ~4 dB over the threshold) never counted as snoring and every event alerted.
+  Now the gate keeps a BANK of learned snore patterns. A pattern is a range of burst length and peak that grows with each
+  burst it matches (matching: length within max(0.3 s, 40 %) of the range, peak within 6 dB, brightness within 30), so
+  variable bursts belong to the same pattern. Events that match nothing are candidates: 3 alike at a regular rhythm (1-20 s
+  apart) become a NEW pattern, which is how it re-learns when the snoring gets louder or longer, while a deviation that
+  does not repeat stays an alert (`ALERT: odd`, decided when the event ends). Louder/longer/brighter than every learned
+  burst still alerts at once (`loud`, `long`, `voice`, `impact`). After a lost rhythm the patterns are kept and the regime
+  returns after 2 matching bursts. At most 8 patterns (the one seen longest ago is dropped). An `early` burst that matches
+  a pattern still teaches the rhythm (otherwise a wrongly learned interval kept alerting).
+- The patterns are saved to `/patterns.json` (written to a temporary file first; at once when one is learned, else every
+  5 min, and on exit) and reloaded at start (`helpers/patterns.py`). After a restart the regime waits for 2 matching bursts.
+  `events.csv` gets `pattern learned,n=,dur=,peak=,mean=,zcr=,iv=` lines, `patterns loaded,n=` at start and `,patterns=N` in
+  the minute line. Config section `learning` (`persist`, `save_every_s`, `path`).
+- `bin/xtalkie patterns [-o FILE] [--clear]` reads or forgets the saved patterns.
+
 ## 0.9.0
 - Night clips (for analysis only, OFF by default): `bin/xtalkie deploy child --clips` (or `CLIPS=1` in `.env`; child only)
   makes the child keep audio in `/night`: a short WAV per alerted event (0.5 s before + the event, at most 6 s) and a

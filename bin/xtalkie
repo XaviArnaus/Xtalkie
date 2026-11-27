@@ -373,6 +373,37 @@ cmd_events() {
   fi
 }
 
+cmd_patterns() {
+  CURRENT_CMD=patterns
+  local out="" clear=0
+  PORT_ARG=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for patterns; return 0 ;;
+      -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
+      -o|--out) need_value "$1" "${2:-}"; out="$2"; shift ;;
+      --clear) clear=1 ;;
+      *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "patterns: unknown argument $1"; fi ;;
+    esac
+    shift
+  done
+  need_mpremote; resolve_port "$PORT_ARG"
+  note "Reading stops the program on the board; a unit deployed with --night restarts by itself about 15 s later."
+  if [ $clear = 1 ]; then
+    printf 'Forget ALL learned snore patterns on %s? [y/N] ' "$PORT" >&2
+    local a=""; read -r a
+    case "$a" in y|Y|yes|YES) ;; *) die "nothing deleted." ;; esac
+    "$PY" -m mpremote connect "$PORT" fs rm :patterns.json || die "could not delete patterns.json (is there one?)"
+    echo "patterns.json deleted: the unit learns from scratch at its next start"
+  elif [ -n "$out" ]; then
+    "$PY" -m mpremote connect "$PORT" fs cat :patterns.json > "$out" || die "could not read patterns.json from the board."
+    echo "wrote $out"
+  else
+    "$PY" -m mpremote connect "$PORT" fs cat :patterns.json
+    echo
+  fi
+}
+
 cmd_versions() {
   CURRENT_CMD=versions
   local ports=() flags=()
@@ -481,6 +512,7 @@ Commands:
   clock-probe [port]      Show what clocks the board has (I2C scan, clock chip, ESP32 clock).
   clip-probe [port]       Measure whether the board can write clips to flash while it listens (about 40 s).
   clips [port]            Copy the night clips (/night) from the board to night_clips/<date>/. --clear deletes them.
+  patterns [port]         Print the snore patterns the child has learned (-o FILE to save, --clear to forget them).
   events [port]           Print the board's events.csv (-o FILE to save it, --old for events.old.csv).
   versions [port ...]     List the version and role of the connected boards.
   test                    Run the host-side tests (no board needed).
@@ -558,6 +590,13 @@ Copies the night clips (the board's /night folder: WAV files and index.csv) to D
 --clear deletes /night on the board, after asking. Stops the program and switches the watchdog off: run "arm" (or deploy --night) afterwards.
 EOF
     ;;
+    patterns) cat <<EOF
+Usage: $0 patterns [port] [-o FILE] [--clear]
+Prints the board's patterns.json: the snore patterns the child unit has learned (length, peak, rhythm, how often seen).
+-o FILE saves it. --clear deletes it, after asking: the unit then learns from scratch at its next start.
+Reading stops the program on the board (a --night unit restarts by itself about 15 s later).
+EOF
+    ;;
     events) cat <<EOF
 Usage: $0 events [port] [-o FILE] [--old]
 Prints the board's events.csv (or saves it with -o FILE). --old reads events.old.csv, the previous log file.
@@ -571,7 +610,7 @@ restarted afterwards unless --no-reset.
 EOF
     ;;
     test) echo "Usage: $0 test    Runs python tests/run_all.py: every host-side test, no board needed (about 2 minutes)." ;;
-    *) die "no help for '$1'. Commands: install ports deploy watch reset settime disarm arm clock-probe clip-probe clips events versions test" ;;
+    *) die "no help for '$1'. Commands: install ports deploy watch reset settime disarm arm clock-probe clip-probe clips patterns events versions test" ;;
   esac
 }
 
@@ -594,6 +633,7 @@ case "$cmd" in
   clips) cmd_clips "$@" ;;
   watch) cmd_watch "$@" ;;
   reset) cmd_reset "$@" ;;
+  patterns) cmd_patterns "$@" ;;
   events) cmd_events "$@" ;;
   versions) cmd_versions "$@" ;;
   deploy) cmd_deploy "$@" ;;

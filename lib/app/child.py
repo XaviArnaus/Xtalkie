@@ -12,7 +12,7 @@ import time
 
 from dsp.gate import Gate
 import version
-from helpers import bootinfo, config, log, watchdog
+from helpers import bootinfo, clock, config, log, patterns, watchdog
 from helpers.nightclips import NightClips
 from net import proto
 from ui.hud import NullHud, volume_actions
@@ -59,6 +59,15 @@ def run(cfg, audio, net, hud=None):
     my_version = version.full()
     my_restart = bootinfo.restart_code()       # 0 = a person started this run, n > 0 = it restarted by itself
     gate = Gate(frame_ms=20, **cfg["gate"])
+    gate.stamper = clock.stamp
+    lcfg = cfg.get("learning", {})
+    pat_path = lcfg.get("path", patterns.PATH)
+    persist = bool(lcfg.get("persist", True)) and not loop
+    save_ms = int(lcfg.get("save_every_s", 300)) * 1000
+    if persist:
+        n_loaded = gate.load(patterns.load(pat_path))
+        print("[child] %d snore pattern(s) loaded" % n_loaded)
+        log.write("child", "patterns loaded,n=%d" % n_loaded)
     nc = None
     ncfg = cfg.get("nightclips", {})
     if ncfg.get("enabled"):
@@ -99,7 +108,8 @@ def run(cfg, audio, net, hud=None):
     streaming = False
     end_pending = False
     live_until = None
-    absorbed_seen = 0
+    learned_seen = 0
+    last_save = now
     n_ignored = 0
     n_alerted = 0
     last_min = now
@@ -149,11 +159,18 @@ def run(cfg, audio, net, hud=None):
                     alerted = not verdict.startswith("ignored") and not verdict.startswith("noise")
                     nc.event(d_s, pk, mn, z, verdict, alerted, worthy=not verdict.startswith("noise"))
 
-            if gate.absorbed != absorbed_seen:
-                absorbed_seen = gate.absorbed
-                log.write("child", "style changed")
+            if gate.learned != learned_seen:
+                learned_seen = gate.learned
+                q = gate.patterns[-1]
+                log.write("child", "pattern learned,n=%d,dur=%.2f,peak=%.1f,mean=%.1f,zcr=%s,iv=%.1f" % (
+                    len(gate.patterns), q["dur"], q["peak"], q["mean"], "-" if q["zcr"] is None else "%d" % q["zcr"], q["iv"]))
                 if verbose:
-                    print("--- snore style changed: learned the new one ---")
+                    print("--- learned snore pattern #%d: %.1f s bursts, peak %.1f dB, every %.1f s ---" % (
+                        len(gate.patterns), q["dur"], q["peak"], q["iv"]))
+            if persist and gate.pat_dirty and (learned_seen and time.ticks_diff(now, last_save) >= 5000
+                                               or time.ticks_diff(now, last_save) >= save_ms):
+                last_save = now
+                gate.pat_dirty = not patterns.save(gate.export(), pat_path)
             forced = live_until is not None and time.ticks_diff(live_until, now) > 0
             if live_until is not None and not forced:     # a live test just ended
                 live_until = None
@@ -270,7 +287,7 @@ def run(cfg, audio, net, hud=None):
                 bpct, bext = hud.battery_info(now)
                 log.write("child", "minute,ignored=%d,alerts=%d,floor=%.1f,regime=%d,peer=%d,batt=%s,ext=%d" % (
                     n_ignored, n_alerted, gate.floor_db, 1 if gate.regime else 0, 0 if peer is None else 1,
-                    "?" if bpct is None else bpct, 1 if bext else 0) + (nc.minute() if nc is not None else ""))
+                    "?" if bpct is None else bpct, 1 if bext else 0) + ",patterns=%d" % len(gate.patterns) + (nc.minute() if nc is not None else ""))
                 n_ignored = 0
                 n_alerted = 0
 
@@ -285,4 +302,6 @@ def run(cfg, audio, net, hud=None):
                     "-" if peer is None else ("%s" % (peer[0],)), worst_us // 1000))
                 worst_us = 0
     finally:
+        if persist and gate.pat_dirty:
+            patterns.save(gate.export(), pat_path)
         audio.close()

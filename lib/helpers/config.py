@@ -59,6 +59,11 @@ DEFAULTS = {
         "min_free_kb": 2500,     # nothing is saved if the flash would drop below this
         "idle_off_s": 120,       # screen off after this long without a clip (0 = never)
     },
+    "learning": {
+        "persist": True,         # child unit: keep the learned snore patterns in /patterns.json and reload them at start
+        "save_every_s": 300,     # ... saved at most this often (and at once when a new pattern is learned)
+        "path": "/patterns.json",
+    },
     "nightclips": {            # child unit: keep audio clips of the night for analysis (pc/deploy.py --clips); see helpers/nightclips.py
         "enabled": False,
         "budget": 9000000,       # bytes of clips at most
