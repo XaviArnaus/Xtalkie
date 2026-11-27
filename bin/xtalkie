@@ -292,11 +292,12 @@ cmd_clip_probe() {
 
 cmd_clips() {
   CURRENT_CMD=clips
-  local dest="" clear=0
+  local dest="" clear=0 list=0
   PORT_ARG=""
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help) help_for clips; return 0 ;;
+      -l|--list|list) list=1 ;;
       -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
       -o|--out) need_value "$1" "${2:-}"; dest="$2"; shift ;;
       --clear) clear=1 ;;
@@ -305,6 +306,19 @@ cmd_clips() {
     shift
   done
   need_mpremote; resolve_port "$PORT_ARG"
+  if [ $list = 1 ]; then
+    # read-only: no disarming, a --night unit simply restarts by itself about 15 s after the listing
+    local lst=""
+    lst="$("$PY" -m mpremote connect "$PORT" fs ls :night 2>&1)" || { echo "no /night folder on the board (nothing recorded yet)"; return 0; }
+    printf '%s\n' "$lst" | awk '
+      $2 ~ /\.wav$/ { n++; b += $1; if ($2 ~ /_w_|_w\.wav/) w++; else e++; if (first == "" || $2 < first) first = $2; if ($2 > last) last = $2 }
+      END {
+        if (!n) { print "/night is empty: no clips recorded"; exit }
+        printf "%d clips (%d events, %d windows), %.1f MB\n", n, e, w, b / 1048576
+        printf "oldest %s\nnewest %s\n", first, last
+      }'
+    return 0
+  fi
   disarm_board
   note "The program on the board is stopped and its watchdog is off; run '$0 arm' (or deploy --night) to put it back to night mode."
   if [ $clear = 1 ]; then
@@ -511,7 +525,7 @@ Commands:
   arm [port]              Switch the watchdog on again and restart the board in night mode.
   clock-probe [port]      Show what clocks the board has (I2C scan, clock chip, ESP32 clock).
   clip-probe [port]       Measure whether the board can write clips to flash while it listens (about 40 s).
-  clips [port]            Copy the night clips (/night) from the board to night_clips/<date>/. --clear deletes them.
+  clips [port]            Copy the night clips (/night) from the board to night_clips/<date>/. --list counts them, --clear deletes them.
   patterns [port]         Print the snore patterns the child has learned (-o FILE to save, --clear to forget them).
   events [port]           Print the board's events.csv (-o FILE to save it, --old for events.old.csv).
   versions [port ...]     List the version and role of the connected boards.
@@ -585,7 +599,9 @@ EOF
     clock-probe|clock_probe) echo "Usage: $0 clock-probe [port]    Runs tools/clock_probe.py on the board: I2C devices, the clock chip, the ESP32 clock." ;;
     clip-probe) echo "Usage: $0 clip-probe [port]    Runs tools/clip_probe.py: free memory, flash write times, and the longest microphone gap while writing." ;;
     clips) cat <<EOF
-Usage: $0 clips [port] [-o DIR] [--clear]
+Usage: $0 clips [port] [--list] [-o DIR] [--clear]
+--list only says how many clips there are (events, windows, size, oldest and newest); it changes nothing and does not
+switch the watchdog off (a --night unit restarts by itself about 15 s later).
 Copies the night clips (the board's /night folder: WAV files and index.csv) to DIR (default night_clips/<date>/).
 --clear deletes /night on the board, after asking. Stops the program and switches the watchdog off: run "arm" (or deploy --night) afterwards.
 EOF

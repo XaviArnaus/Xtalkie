@@ -89,6 +89,7 @@ xtalkie watch [--log f] [--reset]  the serial output, across restarts
 xtalkie events -o child.csv        the board's events.csv, after a night
 xtalkie deploy child --clips       ... and keep night clips for analysis (off by default)
 xtalkie patterns [-o FILE] [--clear] the snore patterns the child has learned (or forget them)
+xtalkie clips --list               how many night clips the board holds (read-only)
 xtalkie clips [-o DIR] [--clear]   copy the night clips from the board (or delete them)
 xtalkie disarm | arm               watchdog off for a day of tests / on again for the night
 xtalkie settime | reset | clock-probe | clip-probe | versions | test | install
