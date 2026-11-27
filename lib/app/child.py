@@ -13,6 +13,7 @@ import time
 from dsp.gate import Gate
 import version
 from helpers import bootinfo, config, log, watchdog
+from helpers.nightclips import NightClips
 from net import proto
 from ui.hud import NullHud, volume_actions
 
@@ -58,6 +59,17 @@ def run(cfg, audio, net, hud=None):
     my_version = version.full()
     my_restart = bootinfo.restart_code()       # 0 = a person started this run, n > 0 = it restarted by itself
     gate = Gate(frame_ms=20, **cfg["gate"])
+    nc = None
+    ncfg = cfg.get("nightclips", {})
+    if ncfg.get("enabled"):
+        try:
+            nc = NightClips(folder=ncfg.get("folder", "/night"), budget=ncfg["budget"], min_free=ncfg["min_free"], window_s=ncfg["window_s"],
+                            window_every_s=ncfg["window_every_s"])
+            print("[clips] night clips ON: %d KB kept at most, %d files now" % (ncfg["budget"] // 1024, len(nc.files)))
+            log.write("child", "night clips on,files=%d" % len(nc.files))
+        except Exception as e:
+            nc = None
+            print("[clips] night clips could not start:", e)
 
     sens = min(5, max(1, int(config.state_load().get("sens_level", mc["sens_level"]))))
 
@@ -118,6 +130,8 @@ def run(cfg, audio, net, hud=None):
             cur = w
             w = (w + 1) % RING
 
+            if nc is not None:
+                nc.feed(payload)
             ev = gate.update(lvl, zcr)
             if gate.ended and gate.last_event is not None:
                 st_s, d_s, pk, mn, z, verdict = gate.last_event
@@ -131,6 +145,9 @@ def run(cfg, audio, net, hud=None):
                         n_alerted += 1
                         log.write("child", "event,%.2f,%.1f,%.1f,%s,%s" % (
                             d_s, pk, mn, ("%d" % z) if z is not None else "-", verdict))
+                if nc is not None and d_s >= 0.08:
+                    alerted = not verdict.startswith("ignored") and not verdict.startswith("noise")
+                    nc.event(d_s, pk, mn, z, verdict, alerted, worthy=not verdict.startswith("noise"))
 
             if gate.absorbed != absorbed_seen:
                 absorbed_seen = gate.absorbed
@@ -253,7 +270,7 @@ def run(cfg, audio, net, hud=None):
                 bpct, bext = hud.battery_info(now)
                 log.write("child", "minute,ignored=%d,alerts=%d,floor=%.1f,regime=%d,peer=%d,batt=%s,ext=%d" % (
                     n_ignored, n_alerted, gate.floor_db, 1 if gate.regime else 0, 0 if peer is None else 1,
-                    "?" if bpct is None else bpct, 1 if bext else 0))
+                    "?" if bpct is None else bpct, 1 if bext else 0) + (nc.minute() if nc is not None else ""))
                 n_ignored = 0
                 n_alerted = 0
 

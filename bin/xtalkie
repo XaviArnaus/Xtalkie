@@ -27,7 +27,7 @@ warn() { printf '%sxtalkie:%s %s\n' "$YEL" "$OFF" "$*" >&2; }
 note() { printf '%s%s%s\n' "$DIM" "$*" "$OFF" >&2; }
 
 # ---- .env ----------------------------------------------------------------------------------------------------------------
-CFG_PORT=""; CFG_SSID="xtalkie"; CFG_PASSWORD=""; CFG_NIGHT="1"; CFG_PYTHON=""     # the project default WiFi name is xtalkie
+CFG_PORT=""; CFG_SSID="xtalkie"; CFG_PASSWORD=""; CFG_NIGHT="1"; CFG_CLIPS="0"; CFG_PYTHON=""     # the project default WiFi name is xtalkie
 
 load_env() {
   local f="$ROOT/.env" line key val
@@ -48,6 +48,7 @@ load_env() {
       WIFI_SSID) CFG_SSID="$val" ;;
       WIFI_PASSWORD) CFG_PASSWORD="$val" ;;
       NIGHT) CFG_NIGHT="$val" ;;
+      CLIPS) CFG_CLIPS="$val" ;;
       PYTHON) CFG_PYTHON="$val" ;;
     esac
   done < "$f"
@@ -245,11 +246,81 @@ cmd_settime() {
   "$PY" "$ROOT/pc/settime.py" "$PORT"
 }
 
+# Switch the board's watchdog off (a --night unit resets itself 15 s after mpremote stops feeding it).
+disarm_board() {
+  ( cd "$ROOT/pc" && "$PY" -c "import sys, deploy; sys.exit(0 if deploy.disarm_watchdog(sys.argv[1], lambda m: print(m, file=sys.stderr)) else 1)" "$PORT" ) \
+    || die "could not switch the watchdog off; close Thonny / other serial programs and try again."
+}
+
+cmd_disarm() {
+  CURRENT_CMD=disarm
+  simple_port_args "$@"
+  need_mpremote; resolve_port "$PORT_ARG"
+  disarm_board
+  echo "watchdog is off: the board will not reset itself. Turn it on again with: $0 arm"
+}
+
+cmd_arm() {
+  CURRENT_CMD=arm
+  simple_port_args "$@"
+  need_mpremote; resolve_port "$PORT_ARG"
+  "$PY" -m mpremote connect "$PORT" exec "import json
+c = json.load(open('/config.json'))
+c['auto_reboot'] = True
+open('/config.json', 'w').write(json.dumps(c))
+print('XT-ARM on')" || die "could not write the board's config."
+  "$PY" -m mpremote connect "$PORT" reset || true
+  echo "watchdog is on (auto_reboot): the board restarts and runs in night mode."
+}
+
 cmd_clock_probe() {
   CURRENT_CMD=clock-probe
   simple_port_args "$@"
   need_mpremote; resolve_port "$PORT_ARG"
+  disarm_board
   "$PY" -m mpremote connect "$PORT" run "$ROOT/tools/clock_probe.py"
+}
+
+cmd_clip_probe() {
+  CURRENT_CMD=clip-probe
+  simple_port_args "$@"
+  need_mpremote; resolve_port "$PORT_ARG"
+  disarm_board
+  note "The probe takes about 40 s; the microphone runs while it writes test files to flash. The watchdog stays off afterwards: run '$0 arm' (or deploy --night) when you are done testing."
+  "$PY" -m mpremote connect "$PORT" run "$ROOT/tools/clip_probe.py"
+}
+
+cmd_clips() {
+  CURRENT_CMD=clips
+  local dest="" clear=0
+  PORT_ARG=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) help_for clips; return 0 ;;
+      -p|--port) need_value "$1" "${2:-}"; PORT_ARG="$2"; shift ;;
+      -o|--out) need_value "$1" "${2:-}"; dest="$2"; shift ;;
+      --clear) clear=1 ;;
+      *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "clips: unknown argument $1"; fi ;;
+    esac
+    shift
+  done
+  need_mpremote; resolve_port "$PORT_ARG"
+  disarm_board
+  note "The program on the board is stopped and its watchdog is off; run '$0 arm' (or deploy --night) to put it back to night mode."
+  if [ $clear = 1 ]; then
+    printf 'Delete ALL night clips on %s? [y/N] ' "$PORT" >&2
+    local a=""; read -r a
+    case "$a" in y|Y|yes|YES) ;; *) die "nothing deleted." ;; esac
+    "$PY" -m mpremote connect "$PORT" fs rm -r :night || die "could not delete /night (is there one?)"
+    echo "the board's /night folder is deleted"
+    return 0
+  fi
+  [ -n "$dest" ] || dest="$ROOT/night_clips/$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$dest" || die "could not create $dest"
+  ( cd "$dest" && "$PY" -m mpremote connect "$PORT" fs cp -r :night . ) || die "could not copy /night (no clips recorded yet?)"
+  echo "copied to $dest"
+  [ -f "$dest/night/index.csv" ] && echo "$(wc -l < "$dest/night/index.csv" | tr -d ' ') lines in night/index.csv"
+  return 0
 }
 
 cmd_reset() {
@@ -323,7 +394,7 @@ cmd_versions() {
 
 cmd_deploy() {
   CURRENT_CMD=deploy
-  local role="" ssid="$CFG_SSID" pass="$CFG_PASSWORD" night="$CFG_NIGHT"
+  local role="" ssid="$CFG_SSID" pass="$CFG_PASSWORD" night="$CFG_NIGHT" clips="$CFG_CLIPS"
   local extra=()
   PORT_ARG=""
   while [ $# -gt 0 ]; do
@@ -336,6 +407,8 @@ cmd_deploy() {
       --password) need_value "$1" "${2:-}"; pass="$2"; shift ;;
       --night) night=1 ;;
       --no-night) night=0 ;;
+      --clips) clips=1 ;;
+      --no-clips) clips=0 ;;
       --dry-run) DRY=1; extra+=("$1") ;;
       --clean|--no-reset|--no-clock|--no-disarm) extra+=("$1") ;;
       *) if is_port_arg "$1"; then PORT_ARG="$1"; else die "deploy: unknown argument $1 (try: $0 help deploy)"; fi ;;
@@ -362,11 +435,18 @@ cmd_deploy() {
   local dargs=() night_txt="off"
   case "$night" in 1|true|yes|on|TRUE|YES|ON) dargs+=(--night); night_txt="on" ;; esac
   [ $wifi = 1 ] && dargs+=(--ssid "$ssid" --password "$pass")
+  local clips_txt="off"
+  case "$clips" in 1|true|yes|on|TRUE|YES|ON)
+    case "$role" in
+      child|master) dargs+=(--clips); clips_txt="on" ;;
+      *) warn "--clips / CLIPS only apply to the child unit: ignored for $role." ;;
+    esac ;;
+  esac
 
   [ "$DRY" = 1 ] || need_mpremote
   resolve_port "$PORT_ARG"
   if [ $wifi = 1 ]; then
-    printf '%sDeploying%s %s to %s  (night: %s, WiFi: %s)\n' "$BOLD" "$OFF" "$role" "$PORT" "$night_txt" "$ssid" >&2
+    printf '%sDeploying%s %s to %s  (night: %s, night clips: %s, WiFi: %s)\n' "$BOLD" "$OFF" "$role" "$PORT" "$night_txt" "$clips_txt" "$ssid" >&2
   else
     printf '%sDeploying%s %s to %s  (night: %s)\n' "$BOLD" "$OFF" "$role" "$PORT" "$night_txt" >&2
   fi
@@ -396,14 +476,19 @@ Commands:
   watch [port]            Show the board's serial output; survives restarts. --log FILE, --reset.
   reset [port]            Restart the board (a hard reset).
   settime [port]          Set the board's clock from this computer's time.
+  disarm [port]           Switch the board's watchdog off (for a day of tests; probes and clips do it themselves).
+  arm [port]              Switch the watchdog on again and restart the board in night mode.
   clock-probe [port]      Show what clocks the board has (I2C scan, clock chip, ESP32 clock).
+  clip-probe [port]       Measure whether the board can write clips to flash while it listens (about 40 s).
+  clips [port]            Copy the night clips (/night) from the board to night_clips/<date>/. --clear deletes them.
   events [port]           Print the board's events.csv (-o FILE to save it, --old for events.old.csv).
   versions [port ...]     List the version and role of the connected boards.
   test                    Run the host-side tests (no board needed).
   help [command]          This text, or help for one command.
 
 Settings (.env in the project folder; copy .env.example):
-  PORT, WIFI_SSID, WIFI_PASSWORD, NIGHT (1 = deploys are --night ones unless you say --no-night), PYTHON.
+  PORT, WIFI_SSID, WIFI_PASSWORD, NIGHT (1 = deploys are --night ones unless you say --no-night), CLIPS (1 = child deploys
+  keep night clips; 0 by default), PYTHON.
   The port can also be given to any command, as the first thing that looks like one (/dev/cu.usbmodem2101, COM5) or
   with -p / --port. With no port anywhere and exactly one board plugged in, that board is used.
 
@@ -412,6 +497,7 @@ Examples:
   $0 deploy child --no-night          a test deploy without the watchdog
   $0 watch --log night.txt            watch the default board and keep a copy
   $0 events -o child_night.csv        read the log after a night
+  $0 deploy child --clips             a child that also keeps audio clips of its alerts (for analysis only)
 EOF
 }
 
@@ -439,6 +525,8 @@ Options:
   --night / --no-night         unattended use: restart after a crash or hang (default: NIGHT from .env, 1 if unset)
   --clean                      also delete the files of the old flat layout
   --no-reset                   do not restart the board afterwards
+  --clips / --no-clips         child only: keep audio clips of the alerted events for analysis (default: CLIPS from .env,
+                               0 if unset: it is only for gathering data, not for normal use)
   --no-clock                   do not set the board's clock
   --no-disarm                  do not switch the watchdog off first
   --dry-run                    only print what would be done (needs no board)
@@ -463,6 +551,13 @@ Stops the program on the board (a --night unit restarts by itself about 15 s lat
 EOF
     ;;
     clock-probe|clock_probe) echo "Usage: $0 clock-probe [port]    Runs tools/clock_probe.py on the board: I2C devices, the clock chip, the ESP32 clock." ;;
+    clip-probe) echo "Usage: $0 clip-probe [port]    Runs tools/clip_probe.py: free memory, flash write times, and the longest microphone gap while writing." ;;
+    clips) cat <<EOF
+Usage: $0 clips [port] [-o DIR] [--clear]
+Copies the night clips (the board's /night folder: WAV files and index.csv) to DIR (default night_clips/<date>/).
+--clear deletes /night on the board, after asking. Stops the program and switches the watchdog off: run "arm" (or deploy --night) afterwards.
+EOF
+    ;;
     events) cat <<EOF
 Usage: $0 events [port] [-o FILE] [--old]
 Prints the board's events.csv (or saves it with -o FILE). --old reads events.old.csv, the previous log file.
@@ -476,7 +571,7 @@ restarted afterwards unless --no-reset.
 EOF
     ;;
     test) echo "Usage: $0 test    Runs python tests/run_all.py: every host-side test, no board needed (about 2 minutes)." ;;
-    *) die "no help for '$1'. Commands: install ports deploy watch reset settime clock-probe events versions test" ;;
+    *) die "no help for '$1'. Commands: install ports deploy watch reset settime disarm arm clock-probe clip-probe clips events versions test" ;;
   esac
 }
 
@@ -492,7 +587,11 @@ case "$cmd" in
   install) cmd_install "$@" ;;
   ports) cmd_ports "$@" ;;
   settime) cmd_settime "$@" ;;
+  disarm) cmd_disarm "$@" ;;
+  arm) cmd_arm "$@" ;;
   clock-probe|clock_probe) cmd_clock_probe "$@" ;;
+  clip-probe|clip_probe) cmd_clip_probe "$@" ;;
+  clips) cmd_clips "$@" ;;
   watch) cmd_watch "$@" ;;
   reset) cmd_reset "$@" ;;
   events) cmd_events "$@" ;;

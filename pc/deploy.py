@@ -97,6 +97,9 @@ def main():
     ap.add_argument("--clean", action="store_true", help="delete the old flat-layout files first")
     ap.add_argument("--no-reset", action="store_true", help="do not restart the board afterwards")
     ap.add_argument("--no-clock", action="store_true", help="do not set the board's clock from this computer")
+    ap.add_argument("--clips", action="store_true",
+                    help="child unit only: keep audio clips of the alerted events on the board, for analysis "
+                         "(off by default: it is only for gathering data, not for normal use)")
     ap.add_argument("--no-disarm", action="store_true",
                     help="do not switch the board's watchdog off first (a board deployed with --night would reset itself "
                          "about 15 s into the copy)")
@@ -115,6 +118,11 @@ def main():
         cfg["wifi"] = wifi
     if args.night:
         cfg["auto_reboot"] = True
+    if args.clips:
+        if cfg["role"] == "child":
+            cfg["nightclips"] = {"enabled": True}
+        else:
+            print("warning: --clips only applies to the child unit (the one that hears the room); ignored for %s" % cfg["role"])
 
     def mp(*a, check=True):
         cmd = [sys.executable, "-m", "mpremote", "connect", args.port] + list(a)

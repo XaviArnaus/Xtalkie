@@ -121,5 +121,17 @@ p2 = subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM
 check(p2.returncode == 0 and '"role": "play"' in p2.stdout, "pc/deploy.py accepts the play role")
 check("switch the board's watchdog off first" in p.stdout, "deploy.py switches the watchdog off before copying (a --night board resets itself 15 s in)")
 check('"auto_reboot": true' in p.stdout and "fs rm :board.py" in p.stdout, "deploy.py --night writes auto_reboot and --clean removes the old files")
+
+# night clips switch: off unless asked, child only
+def dry(*a):
+    return subprocess.run([sys.executable, os.path.join(ROOT, "pc", "deploy.py"), "COM5", *a, "--ssid", "x", "--password", "y" * 8, "--dry-run"],
+                          capture_output=True, text=True)
+pc_, pp_, pn_ = dry("child", "--clips"), dry("parent", "--clips"), dry("child")
+check('"nightclips": {"enabled": true}' in pc_.stdout, "deploy.py child --clips writes nightclips enabled")
+cfgline = lambda p: [l for l in p.stdout.splitlines() if l.startswith("config.json")][0]
+check("nightclips" not in cfgline(pn_), "without --clips nothing is written: night clips stay off")
+check("nightclips" not in cfgline(pp_) and "only applies to the child" in pp_.stdout, "--clips on the parent is ignored with a warning")
+import helpers.config as _cfg
+check(_cfg.DEFAULTS["nightclips"]["enabled"] is False, "night clips are off by default in the config")
 shutil.rmtree(tmp, ignore_errors=True)
 finish()

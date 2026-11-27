@@ -139,6 +139,14 @@ The two crashes are made on purpose with a bad config. Both use `auto_reboot` so
 - [ ] Morning: `python pc/versions.py` (restarts the boards, do it only when the night is over), and copy `/events.csv` from both boards. **[send]**
   Look for `boot` lines in the middle of the night: each is a restart; `crashes=` tells how many in a row.
 
+## 13. Night clips (0.9.0, only to gather data)
+
+- [ ] `bin/xtalkie deploy child --clips`: the serial output says `[clips] night clips ON`; the parent deploy has no `--clips`.
+- [ ] Make a few sounds near the child, wait 2 minutes: `events.csv` minute lines end with `clips=N,clipskip=N,clipw=ms`
+  (`clipw` should stay under ~100 ms; the `frame<=` figure in the serial lines too).
+- [ ] The real night, then `bin/xtalkie clips`; open a `_w.wav` in an audio player: 20 s, snoring rhythm visible. **[send]** the folder (or `index.csv`).
+- [ ] `bin/xtalkie arm` afterwards, or redeploy with `--night`.
+
 ## What I would watch most
 
 - Start-up order changed (panel before audio) and the WiFi join no longer waits: both only matter on real boards.
