@@ -24,3 +24,6 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# audio copied from the board by bin/xtalkie clips
+night_clips/

@@ -3,6 +3,19 @@
 Bump `VERSION` in `lib/version.py` for every change that goes onto a board, and add a line here.
 `pc/deploy.py` adds the git commit to what the board reports (`+` = modified files), `pc/versions.py` lists the boards.
 
+## 0.9.0
+- Night clips (for analysis only, OFF by default): `bin/xtalkie deploy child --clips` (or `CLIPS=1` in `.env`; child only)
+  makes the child keep audio in `/night`: a short WAV per alerted event (0.5 s before + the event, at most 6 s) and a
+  20 s window (the last 3 s + the next 17 s, at most one per 20 min) to see the rhythm of the snoring, plus
+  `index.csv` (datetime, uptime, file, kind, seconds, peak, mean, zcr, verdict). `helpers/nightclips.py`.
+  Budget 9 MB of clips and 4 MB of flash always free; when full, the oldest event clip of the busiest hour is deleted first.
+  Written one 1920-byte chunk per microphone frame, one job at a time (measured with `tools/clip_probe.py`: the longest
+  gap between mic frames stays about 100 ms, the mic buffer holds ~150 ms). Never raises; 3 write errors switch it off.
+  The minute line in `events.csv` gets `,clips=N,clipskip=N,clipw=ms` (files, events missed while busy, slowest write).
+- `bin/xtalkie clips [-o DIR] [--clear]` copies `/night` to `night_clips/<date>/` (or deletes it); `clip-probe` runs the probe.
+- `bin/xtalkie disarm` / `arm`: switch the watchdog off for a day of tests / on again. `clip-probe`, `clock-probe` and
+  `clips` disarm by themselves (a `--night` board resets 15 s after mpremote stops feeding the watchdog, which cut the first probe).
+
 ## 0.8.1
 - `bin/xtalkie`: one bash command for the PC tools (install, ports, deploy, watch, reset, settime, clock-probe, events,
   versions, test, help), with settings in `.env` (`.env.example`; port, WiFi name and password, NIGHT), a check that

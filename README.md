@@ -87,7 +87,10 @@ xtalkie deploy parent              copy the code, write the config, set the cloc
 xtalkie deploy child --no-night    ... a deploy without the watchdog; --night is the default (NIGHT=1 in .env)
 xtalkie watch [--log f] [--reset]  the serial output, across restarts
 xtalkie events -o child.csv        the board's events.csv, after a night
-xtalkie settime | reset | clock-probe | versions | test | install
+xtalkie deploy child --clips       ... and keep night clips for analysis (off by default)
+xtalkie clips [-o DIR] [--clear]   copy the night clips from the board (or delete them)
+xtalkie disarm | arm               watchdog off for a day of tests / on again for the night
+xtalkie settime | reset | clock-probe | clip-probe | versions | test | install
 ```
 
 The port is the first argument that looks like one (`/dev/cu.usbmodem2101`, `COM5`) or `-p PORT`; it wins over `.env`. With
@@ -206,6 +209,15 @@ it can be trusted; a chip that lost its time (flag set) is set from the ESP32's 
 does only that. If the log shows `-`, run `pc/settime.py`. The serial output at start says `[clock] ... (chip)`,
 `(system->chip)`, `(system)` or `not set`. Local time only: no time zone and no daylight saving, so set it again after a
 clock change if you want the logs to follow the wall clock.
+
+## Night clips (analysis only)
+
+Off by default. `bin/xtalkie deploy child --clips` (or `CLIPS=1` in `.env`) makes the child keep audio in `/night`:
+`YYYYMMDD_HHMMSS_e.wav` (an alerted event, with 0.5 s before it) and `..._w.wav` (a 20 s window, at most one per 20 min,
+to see the rhythm of the snoring), plus `index.csv`. Up to 9 MB, 4 MB of flash stay free; when full the oldest event clip
+of the busiest hour goes first. Next morning: `bin/xtalkie clips` copies them to `night_clips/<date>/` (they are plain
+16 kHz WAV files). It stops the program and switches the watchdog off: `bin/xtalkie arm` (or a deploy) puts the unit back
+in night mode. `bin/xtalkie clip-probe` measures flash writes with the microphone running (done once; see CHANGELOG 0.9.0).
 
 ## Checks and diagnostics (`tools/`, with config.json `{"role": "idle"}` and a reset)
 

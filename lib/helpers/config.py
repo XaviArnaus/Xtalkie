@@ -59,6 +59,13 @@ DEFAULTS = {
         "min_free_kb": 2500,     # nothing is saved if the flash would drop below this
         "idle_off_s": 120,       # screen off after this long without a clip (0 = never)
     },
+    "nightclips": {            # child unit: keep audio clips of the night for analysis (pc/deploy.py --clips); see helpers/nightclips.py
+        "enabled": False,
+        "budget": 9000000,       # bytes of clips at most
+        "min_free": 4000000,     # bytes of flash always left free
+        "window_s": 20,          # a continuous window, to see the rhythm of the snoring
+        "window_every_s": 1200,  # at most one window per this long
+    },
     "parent": {"jitter_frames": 5, "link_timeout_ms": 3000, "alarm_period_ms": 10000,
               "alarm_before_first_link": False, "verbose": True},
 }
